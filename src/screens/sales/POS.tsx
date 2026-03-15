@@ -9,11 +9,11 @@ import {
     ActivityIndicator,
     RefreshControl,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation } from '@react-navigation/native';
 import { useProducts } from '@hooks/useProducts';
 import { useCart } from '@hooks/useCart';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency } from '@utils/formatters';
 import { useDebounce } from '@hooks/useDebounce';

@@ -10,10 +10,10 @@ import {
     Alert,
     Image,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '@hooks/useAuth';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { validateEmail, validatePhone } from '@utils/validators';
 

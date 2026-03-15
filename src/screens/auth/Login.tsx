@@ -11,10 +11,10 @@ import {
     ActivityIndicator,
     Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation } from '@react-navigation/native';
-import { useAuth } from '@hooks/useAuth';
-import { colors } from '@theme/colors';
+import { useAuth } from '../../hooks/useAuth';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 
 const LoginScreen = () => {
@@ -92,7 +92,7 @@ const LoginScreen = () => {
 
                     <TouchableOpacity
                         style={styles.forgotPassword}
-                        onPress={() => navigation.navigate('ForgotPassword')}
+                        onPress={() => navigation.navigate('ForgotPassword' as never)}
                     >
                         <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
@@ -113,7 +113,7 @@ const LoginScreen = () => {
                 {/* Register Link */}
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Don't have an account? </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                    <TouchableOpacity onPress={() => navigation.navigate('Register' as never)}>
                         <Text style={styles.registerText}>Sign Up</Text>
                     </TouchableOpacity>
                 </View>

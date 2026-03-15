@@ -1,8 +1,8 @@
-const {getDefaultConfig} = require('@react-native/metro-config');
+const { getDefaultConfig } = require('@react-native/metro-config');
 
 module.exports = (async () => {
     const {
-        resolver: {sourceExts, assetExts},
+        resolver: { sourceExts, assetExts },
     } = await getDefaultConfig();
 
     return {
@@ -10,7 +10,17 @@ module.exports = (async () => {
             babelTransformerPath: require.resolve('react-native-svg-transformer'),
         },
         resolver: {
-            assetExts: assetExts.filter(ext => ext !== 'svg'),
+            // Add common image extensions
+            assetExts: [
+                ...assetExts.filter(ext => ext !== 'svg'),
+                'ttf',
+                'png',
+                'jpg',
+                'jpeg',
+                'gif',
+                'webp',
+                'otf'
+            ],
             sourceExts: [...sourceExts, 'svg'],
         },
     };

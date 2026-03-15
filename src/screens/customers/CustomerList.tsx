@@ -9,10 +9,10 @@ import {
     ActivityIndicator,
     RefreshControl,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation } from '@react-navigation/native';
 import { useCustomers } from '@hooks/useCustomers';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency, formatPhoneNumber } from '@utils/formatters';
 import { useDebounce } from '@hooks/useDebounce';

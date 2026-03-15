@@ -1,18 +1,18 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { DistributorsStackParamList } from './types';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 // Import screens
 import DistributorListScreen from '@screens/distributors/DistributorList';
-import DistributorDetailScreen from '@screens/distributors/DistributorDetail';
+import DistributorDetailScreen from '@screens/distributors/DistributorDetails';
 import AddDistributorScreen from '@screens/distributors/AddDistributor';
 import EditDistributorScreen from '@screens/distributors/EditDistributor';
-import DistributorOrdersScreen from '@screens/distributors/DistributorOrdersScreen';
+import DistributorOrdersScreen from '@screens/distributors/DistributorOrders';
 import DistributorOrderDetailScreen from '@screens/distributors/DistributorOrderDetail';
-import CreateDistributorOrderScreen from '@screens/distributors/CreateDistributorOrderScreen';
-import DistributorPaymentsScreen from '@screens/distributors/DistributorPaymentsScreen';
-import CreateDistributorPaymentScreen from '@screens/distributors/CreateDistributorPaymentScreen';
+import CreateDistributorOrderScreen from '@screens/distributors/CreateDistributorOrder';
+import DistributorPaymentsScreen from '@screens/distributors/DistributorPayments';
+import CreateDistributorPaymentScreen from '@screens/distributors/CreateDistributorPayment';
 
 const Stack = createNativeStackNavigator<DistributorsStackParamList>();
 

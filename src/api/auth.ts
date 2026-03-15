@@ -11,6 +11,7 @@ export interface RegisterRequest {
     email: string;
     firstName: string;
     lastName: string;
+    phone: string | undefined;
 }
 
 export interface AuthResponse {

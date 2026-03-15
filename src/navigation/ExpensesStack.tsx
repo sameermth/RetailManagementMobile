@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ExpensesStackParamList } from './types';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 // Import screens
 import ExpenseListScreen from '@screens/expenses/ExpenseList';

@@ -11,10 +11,10 @@ import {
     ActivityIndicator,
     Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '@hooks/useAuth';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { validateEmail, validatePhone } from '@utils/validators';
 
@@ -252,7 +252,7 @@ const RegisterScreen = () => {
                 {/* Login Link */}
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Already have an account? </Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                    <TouchableOpacity onPress={() => navigation.navigate('Login' as never)}>
                         <Text style={styles.loginText}>Sign In</Text>
                     </TouchableOpacity>
                 </View>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { MainTabParamList } from './types';
 
 // Import navigators
@@ -10,7 +10,7 @@ import ProductsStack from './ProductsStack';
 import CustomersStack from './CustomersStack';
 import MoreStack from './MoreStack';
 
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 

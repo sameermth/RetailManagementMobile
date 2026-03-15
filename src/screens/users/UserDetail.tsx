@@ -8,10 +8,10 @@ import {
     ActivityIndicator,
     Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useUsers } from '@hooks/useUsers';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatDate, formatDateTime } from '@utils/formatters';
 

@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ProductsStackParamList } from './types';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 // Import screens (we'll create these next)
 import ProductListScreen from '@screens/products/ProductList';

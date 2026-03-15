@@ -11,11 +11,11 @@ import {
     KeyboardAvoidingView,
     Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useInventory } from '@hooks/useInventory';
 import { useProducts } from '@hooks/useProducts';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency } from '@utils/formatters';
 

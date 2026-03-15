@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { UsersStackParamList } from './types';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 // Import screens
 import UserListScreen from '@screens/users/UserList';

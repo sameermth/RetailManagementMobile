@@ -4,10 +4,10 @@ import { MainTabParamList } from './types';
 
 // Import screens
 import DashboardScreen from '@screens/dashboard/Dashboard';
-import SalesReportScreen from '@screens/reports/SalesReport';
-import InventoryReportScreen from '@screens/reports/InventoryReport';
-import FinancialReportScreen from '@screens/reports/FinancialReport';
 import {colors} from "@theme/color";
+import SalesReportScreen from "@screens/sales/SalesReport";
+import InventoryReportScreen from "@screens/sales/InventoryReport";
+import FinancialReportScreen from "@screens/sales/FinancialReport";
 
 const Stack = createNativeStackNavigator();
 

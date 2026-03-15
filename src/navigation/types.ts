@@ -179,6 +179,14 @@ export type DataStackParamList = {
 export type MoreStackParamList = {
     MoreMenu: undefined;
     Suppliers: undefined;
+    SupplierDetail: undefined;
+    AddSupplier: undefined;
+    PurchaseDetail: undefined;
+    CreatePurchase: undefined;
+    ExpenseDetail: undefined;
+    AddExpense: undefined;
+    ReportViewer: undefined;
+    Profile: undefined;
     Purchases: undefined;
     Expenses: undefined;
     Reports: undefined;
@@ -219,7 +227,6 @@ export type RootStackParamList = AuthStackParamList
     Main: undefined;
 };
 
-// CORRECT WAY: Augment the existing RootParamList from React Navigation
 declare global {
     namespace ReactNavigation {
         // @ts-ignore

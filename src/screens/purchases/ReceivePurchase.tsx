@@ -9,11 +9,11 @@ import {
     ActivityIndicator,
     Alert, Platform,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { usePurchases } from '@hooks/usePurchases';
 import { useInventory } from '@hooks/useInventory';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency } from '@utils/formatters';
 

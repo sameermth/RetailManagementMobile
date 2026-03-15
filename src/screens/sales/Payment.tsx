@@ -8,11 +8,11 @@ import {
     TextInput,
     Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from '../../components/Icon';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCart } from '@hooks/useCart';
 import { useSales } from '@hooks/useSales';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency } from '@utils/formatters';
 import { PAYMENT_METHODS } from '@utils/constants';

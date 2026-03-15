@@ -1,15 +1,14 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ReportsStackParamList } from './types';
-import { colors } from '@theme/colors';
+import { colors } from '@theme/color';
 
 // Import screens
 import ReportListScreen from '@screens/reports/ReportList';
 import ReportViewerScreen from '@screens/reports/ReportViewer';
-import SalesReportScreen from '@screens/reports/SalesReport';
-import InventoryReportScreen from '@screens/reports/InventoryReport';
-import FinancialReportScreen from '@screens/reports/FinancialReport';
-
+import SalesReportScreen from "@screens/sales/SalesReport";
+import InventoryReportScreen from "@screens/sales/InventoryReport";
+import FinancialReportScreen from "@screens/sales/FinancialReport";
 const Stack = createNativeStackNavigator<ReportsStackParamList>();
 
 const ReportsStack = () => {
