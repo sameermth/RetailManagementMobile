@@ -165,7 +165,7 @@ const ExpenseListScreen = () => {
                             style={styles.picker}
                         >
                             <Picker.Item label="All Categories" value="all" />
-                            {categories.map((cat) => (
+                            {categories?.map((cat) => (
                                 <Picker.Item key={cat.id} label={cat.name} value={cat.id.toString()} />
                             ))}
                         </Picker>

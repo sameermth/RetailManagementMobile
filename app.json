@@ -12,9 +12,7 @@
       "backgroundColor": "#ffffff"
     },
     "assetBundlePatterns": [
-      "**/*",
-      "node_modules/@react-navigation/elements/lib/commonjs/assets/*.png",
-      "node_modules/react-native-vector-icons/Fonts/*.ttf"
+      "**/*"
     ],
     "ios": {
       "supportsTablet": true,

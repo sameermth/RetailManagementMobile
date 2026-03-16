@@ -181,7 +181,7 @@ const DashboardScreen = () => {
                             <Text style={styles.actionText}>New Sale</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AddProduct')}>
-                            <Icon name="package-plus" size={32} color={colors.success} />
+                            <Icon name="plus-box" size={32} color={colors.success} />
                             <Text style={styles.actionText}>Add Product</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AddCustomer')}>
