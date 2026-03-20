@@ -75,6 +75,42 @@ const DashboardScreen = () => {
         }
     };
 
+    const handleQuickItem = ( screenName: string) => {
+        // @ts-ignore
+        switch (screenName) {
+            case 'POS':
+                // @ts-ignore
+                navigation.navigate('POS', {
+                    screen: 'NewSale',
+                    params: {}
+                });
+                break;
+            case 'AddCustomer':
+                // @ts-ignore
+                navigation.navigate('Customers', {
+                    screen: 'AddCustomer',
+                    params: {}
+                });
+                break;
+            case 'CreatePurchase':
+                // @ts-ignore
+                navigation.navigate('Purchases', {
+                    screen: 'CreatePurchase',
+                    params: {}
+                });
+                break;
+            case 'AddProduct':
+                // @ts-ignore
+                navigation.navigate('Products', {
+                    screen: 'AddProduct',
+                    params: {}
+                });
+                break;
+            default:
+                break;
+        }
+    }
+
     return (
         <ScrollView
             style={styles.container}
@@ -176,19 +212,19 @@ const DashboardScreen = () => {
                     {/* Quick Actions */}
                     <Text style={styles.sectionTitle}>Quick Actions</Text>
                     <View style={styles.quickActions}>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('POS')}>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => handleQuickItem('POS')}>
                             <Icon name="cash-register" size={32} color={colors.primary[500]} />
                             <Text style={styles.actionText}>New Sale</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AddProduct')}>
+                        <TouchableOpacity style={styles.actionButton} onPress={()=>handleQuickItem('AddProduct')}>
                             <Icon name="plus-box" size={32} color={colors.success} />
                             <Text style={styles.actionText}>Add Product</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AddCustomer')}>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => handleQuickItem('AddCustomer')}>
                             <Icon name="account-plus" size={32} color={colors.info} />
                             <Text style={styles.actionText}>Add Customer</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('CreatePurchase')}>
+                        <TouchableOpacity style={styles.actionButton} onPress={() => handleQuickItem('CreatePurchase')}>
                             <Icon name="truck-plus" size={32} color={colors.warning} />
                             <Text style={styles.actionText}>New Order</Text>
                         </TouchableOpacity>

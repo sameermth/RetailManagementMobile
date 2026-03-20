@@ -33,6 +33,7 @@ const CustomerListScreen = () => {
     const [loadingMore, setLoadingMore] = useState(false);
     const [filterType, setFilterType] = useState<'all' | 'with-due'>('all');
     const debouncedSearch = useDebounce(searchQuery, 500);
+    const { getCustomersWithDue } = useCustomers();
 
     useEffect(() => {
         loadCustomers(0);

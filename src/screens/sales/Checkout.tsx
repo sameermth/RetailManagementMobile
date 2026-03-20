@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -8,9 +8,11 @@ import {
     TextInput,
     Alert,
     ActivityIndicator,
+    FlatList,
+    Modal,
 } from 'react-native';
 import Icon from '../../components/Icon';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useCart } from '@hooks/useCart';
 import { useCustomers } from '@hooks/useCustomers';
 import { useSales } from '@hooks/useSales';
@@ -19,27 +21,35 @@ import { colors } from '@theme/color';
 import { typography } from '@theme/typography';
 import { formatCurrency } from '@utils/formatters';
 import { PAYMENT_METHODS } from '@utils/constants';
-import { Picker } from '@react-native-picker/picker';
 
 const CheckoutScreen = () => {
     const navigation = useNavigation();
+    const route = useRoute();
     const { user } = useAuth();
-    const { items, getCartSummary, clearCart } = useCart();
+    const { items, getCartSummary, clearCart, selectedCustomer, setSelectedCustomer } = useCart();
     const { customers, fetchCustomers } = useCustomers();
     const { createSale, loading } = useSales();
-
-    const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
-    const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+    const [showCustomerModal, setShowCustomerModal] = useState(false);
+    const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+    const [customerLoading, setCustomerLoading] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState('CASH');
     const [notes, setNotes] = useState('');
-    const [searchQuery, setSearchQuery] = useState('');
 
     const summary = getCartSummary();
 
+    // If no customer is selected, show modal immediately
+    useEffect(() => {
+        if (!selectedCustomer) {
+            setShowCustomerModal(true);
+        }
+    }, []);
+
     const handleCustomerSearch = async (text: string) => {
-        setSearchQuery(text);
+        setCustomerSearchQuery(text);
         if (text.length > 2) {
-            await fetchCustomers(0, 10, text);
+            setCustomerLoading(true);
+            await fetchCustomers(0, 20, text);
+            setCustomerLoading(false);
         }
     };
 
@@ -49,13 +59,22 @@ const CheckoutScreen = () => {
             return;
         }
 
+        if (!selectedCustomer) {
+            Alert.alert(
+                'Customer Required',
+                'A registered customer is required for warranty tracking',
+                [{ text: 'OK', onPress: () => setShowCustomerModal(true) }]
+            );
+            return;
+        }
+
         if (!user?.id) {
             Alert.alert('Error', 'User not authenticated');
             return;
         }
 
         const saleData = {
-            customerId: selectedCustomer?.id,
+            customerId: selectedCustomer.id,
             userId: user.id,
             items: items.map(item => ({
                 productId: item.product.id,
@@ -78,14 +97,122 @@ const CheckoutScreen = () => {
         }
     };
 
+    const renderCustomerModal = () => (
+        <Modal
+            visible={showCustomerModal}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => {
+                if (!selectedCustomer) {
+                    Alert.alert(
+                        'Customer Required',
+                        'You must select a customer to continue. All sales require a registered customer for warranty tracking.',
+                        [{ text: 'OK' }]
+                    );
+                } else {
+                    setShowCustomerModal(false);
+                }
+            }}
+        >
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Select Customer</Text>
+                        {selectedCustomer && (
+                            <TouchableOpacity onPress={() => setShowCustomerModal(false)}>
+                                <Icon name="close" size={24} color={colors.text.primary} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+
+                    <View style={styles.modalSearch}>
+                        <Icon name="magnify" size={20} color={colors.gray[400]} />
+                        <TextInput
+                            style={styles.modalSearchInput}
+                            placeholder="Search customers by name, phone or email..."
+                            placeholderTextColor={colors.gray[400]}
+                            value={customerSearchQuery}
+                            onChangeText={handleCustomerSearch}
+                            autoFocus={true}
+                        />
+                    </View>
+
+                    <FlatList
+                        data={customers}
+                        keyExtractor={(item) => item.id.toString()}
+                        renderItem={({ item }) => (
+                            <TouchableOpacity
+                                style={styles.customerItem}
+                                onPress={() => {
+                                    setSelectedCustomer(item);
+                                    setShowCustomerModal(false);
+                                    setCustomerSearchQuery('');
+                                }}
+                            >
+                                <View style={styles.customerAvatar}>
+                                    <Text style={styles.customerInitials}>
+                                        {item.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || '?'}
+                                    </Text>
+                                </View>
+                                <View style={styles.customerInfo}>
+                                    <Text style={styles.customerName}>{item.name}</Text>
+                                    <Text style={styles.customerDetail}>
+                                        {item.phone || 'No phone'} • {item.email || 'No email'}
+                                    </Text>
+                                    {item.gstNumber && (
+                                        <Text style={styles.customerGst}>GST: {item.gstNumber}</Text>
+                                    )}
+                                </View>
+                                <Icon name="chevron-right" size={20} color={colors.gray[400]} />
+                            </TouchableOpacity>
+                        )}
+                        ListEmptyComponent={
+                            customerLoading ? (
+                                <ActivityIndicator size="large" color={colors.primary[500]} />
+                            ) : (
+                                <View style={styles.modalEmpty}>
+                                    <Icon name="account-question" size={48} color={colors.gray[300]} />
+                                    <Text style={styles.modalEmptyTitle}>No Customers Found</Text>
+                                    <Text style={styles.modalEmptyText}>
+                                        {customerSearchQuery
+                                            ? `No customers matching "${customerSearchQuery}"`
+                                            : 'No customers in the system'}
+                                    </Text>
+                                    <TouchableOpacity
+                                        style={styles.modalAddButton}
+                                        onPress={() => {
+                                            setShowCustomerModal(false);
+                                            navigation.navigate('AddCustomer', {
+                                                onGoBack: () => {
+                                                    setShowCustomerModal(true);
+                                                }
+                                            });
+                                        }}
+                                    >
+                                        <Icon name="plus" size={20} color={colors.background} />
+                                        <Text style={styles.modalAddButtonText}>Add New Customer</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )
+                        }
+                    />
+                </View>
+            </View>
+        </Modal>
+    );
+
     return (
         <ScrollView style={styles.container}>
-            {/* Customer Selection */}
+            {renderCustomerModal()}
+
+            {/* Customer Section - Required */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Customer</Text>
+                <Text style={styles.sectionTitle}>
+                    Customer <Text style={styles.requiredStar}>*</Text>
+                </Text>
                 <TouchableOpacity
-                    style={styles.customerSelector}
-                    onPress={() => setShowCustomerPicker(!showCustomerPicker)}
+                    style={[styles.customerSelector, !selectedCustomer && styles.customerSelectorRequired]}
+                    onPress={() => setShowCustomerModal(true)}
                 >
                     {selectedCustomer ? (
                         <View style={styles.selectedCustomer}>
@@ -97,62 +224,21 @@ const CheckoutScreen = () => {
                             <View style={styles.customerInfo}>
                                 <Text style={styles.customerName}>{selectedCustomer.name}</Text>
                                 <Text style={styles.customerDetail}>
-                                    {selectedCustomer.phone || 'No phone'} • {selectedCustomer.city || 'No city'}
+                                    {selectedCustomer.phone || 'No phone'} • {selectedCustomer.email || 'No email'}
                                 </Text>
+                                {selectedCustomer.gstNumber && (
+                                    <Text style={styles.customerGst}>GST: {selectedCustomer.gstNumber}</Text>
+                                )}
                             </View>
                         </View>
                     ) : (
-                        <View style={styles.walkinCustomer}>
-                            <Icon name="account" size={24} color={colors.gray[400]} />
-                            <Text style={styles.walkinText}>Walk-in Customer</Text>
+                        <View style={styles.requiredCustomer}>
+                            <Icon name="account-alert" size={24} color={colors.warning} />
+                            <Text style={styles.requiredText}>Customer Required - Select to continue</Text>
                         </View>
                     )}
                     <Icon name="chevron-down" size={24} color={colors.gray[400]} />
                 </TouchableOpacity>
-
-                {showCustomerPicker && (
-                    <View style={styles.customerPicker}>
-                        <TextInput
-                            style={styles.searchInput}
-                            placeholder="Search customers..."
-                            placeholderTextColor={colors.gray[400]}
-                            value={searchQuery}
-                            onChangeText={handleCustomerSearch}
-                        />
-                        <ScrollView style={styles.customerList} nestedScrollEnabled>
-                            <TouchableOpacity
-                                style={styles.customerOption}
-                                onPress={() => {
-                                    setSelectedCustomer(null);
-                                    setShowCustomerPicker(false);
-                                }}
-                            >
-                                <Icon name="account" size={20} color={colors.gray[500]} />
-                                <Text style={styles.customerOptionText}>Walk-in Customer</Text>
-                            </TouchableOpacity>
-                            {customers.map((customer) => (
-                                <TouchableOpacity
-                                    key={customer.id}
-                                    style={styles.customerOption}
-                                    onPress={() => {
-                                        setSelectedCustomer(customer);
-                                        setShowCustomerPicker(false);
-                                    }}
-                                >
-                                    <View style={styles.optionAvatar}>
-                                        <Text style={styles.optionAvatarText}>{customer.name.charAt(0)}</Text>
-                                    </View>
-                                    <View style={styles.optionInfo}>
-                                        <Text style={styles.optionName}>{customer.name}</Text>
-                                        <Text style={styles.optionDetail}>
-                                            {customer.phone || 'No phone'} • {customer.city || 'No city'}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                    </View>
-                )}
             </View>
 
             {/* Order Summary */}
@@ -244,9 +330,12 @@ const CheckoutScreen = () => {
 
             {/* Checkout Button */}
             <TouchableOpacity
-                style={[styles.checkoutButton, loading && styles.checkoutButtonDisabled]}
+                style={[
+                    styles.checkoutButton,
+                    (loading || !selectedCustomer) && styles.checkoutButtonDisabled
+                ]}
                 onPress={handleCheckout}
-                disabled={loading}
+                disabled={loading || !selectedCustomer}
             >
                 {loading ? (
                     <ActivityIndicator color={colors.background} />
@@ -277,6 +366,9 @@ const styles = StyleSheet.create({
         color: colors.text.primary,
         marginBottom: 12,
     },
+    requiredStar: {
+        color: colors.error,
+    },
     customerSelector: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -285,6 +377,11 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         borderRadius: 12,
         padding: 12,
+    },
+    customerSelectorRequired: {
+        borderColor: colors.warning,
+        borderWidth: 2,
+        backgroundColor: colors.warning + '10',
     },
     selectedCustomer: {
         flex: 1,
@@ -319,74 +416,22 @@ const styles = StyleSheet.create({
         fontFamily: typography.fontFamily.regular,
         color: colors.text.secondary,
     },
-    walkinCustomer: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    walkinText: {
-        fontSize: typography.fontSize.base,
-        fontFamily: typography.fontFamily.regular,
-        color: colors.text.secondary,
-        marginLeft: 12,
-    },
-    customerPicker: {
-        marginTop: 8,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: 12,
-        backgroundColor: colors.surface,
-    },
-    searchInput: {
-        padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        fontSize: typography.fontSize.base,
-        fontFamily: typography.fontFamily.regular,
-        color: colors.text.primary,
-    },
-    customerList: {
-        maxHeight: 200,
-    },
-    customerOption: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-    },
-    optionAvatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: colors.gray[200],
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    optionAvatarText: {
-        fontSize: typography.fontSize.base,
-        fontFamily: typography.fontFamily.medium,
-        color: colors.text.secondary,
-    },
-    optionInfo: {
-        flex: 1,
-    },
-    optionName: {
-        fontSize: typography.fontSize.sm,
-        fontFamily: typography.fontFamily.medium,
-        color: colors.text.primary,
-        marginBottom: 2,
-    },
-    optionDetail: {
+    customerGst: {
         fontSize: typography.fontSize.xs,
         fontFamily: typography.fontFamily.regular,
-        color: colors.text.secondary,
+        color: colors.primary[500],
+        marginTop: 2,
     },
-    customerOptionText: {
+    requiredCustomer: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+    },
+    requiredText: {
         fontSize: typography.fontSize.base,
-        fontFamily: typography.fontFamily.regular,
-        color: colors.text.primary,
+        fontFamily: typography.fontFamily.medium,
+        color: colors.warning,
         marginLeft: 12,
     },
     orderItem: {
@@ -465,6 +510,7 @@ const styles = StyleSheet.create({
         fontFamily: typography.fontFamily.regular,
         color: colors.text.primary,
         minHeight: 80,
+        textAlignVertical: 'top',
     },
     totalsSection: {
         backgroundColor: colors.background,
@@ -516,10 +562,97 @@ const styles = StyleSheet.create({
     },
     checkoutButtonDisabled: {
         opacity: 0.6,
+        backgroundColor: colors.gray[500],
     },
     checkoutButtonText: {
         fontSize: typography.fontSize.lg,
         fontFamily: typography.fontFamily.bold,
+        color: colors.background,
+        marginLeft: 8,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: colors.background,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        paddingTop: 20,
+        maxHeight: '80%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    modalTitle: {
+        fontSize: typography.fontSize.lg,
+        fontFamily: typography.fontFamily.semiBold,
+        color: colors.text.primary,
+    },
+    modalSearch: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.gray[50],
+        margin: 16,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+    },
+    modalSearchInput: {
+        flex: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        fontSize: typography.fontSize.base,
+        color: colors.text.primary,
+    },
+    customerItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    customerInitials: {
+        fontSize: typography.fontSize.base,
+        fontFamily: typography.fontFamily.semiBold,
+        color: colors.primary[500],
+    },
+    modalEmpty: {
+        padding: 32,
+        alignItems: 'center',
+    },
+    modalEmptyTitle: {
+        fontSize: typography.fontSize.lg,
+        fontFamily: typography.fontFamily.semiBold,
+        color: colors.text.primary,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    modalEmptyText: {
+        fontSize: typography.fontSize.sm,
+        fontFamily: typography.fontFamily.regular,
+        color: colors.text.secondary,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    modalAddButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.primary[500],
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 8,
+    },
+    modalAddButtonText: {
+        fontSize: typography.fontSize.base,
+        fontFamily: typography.fontFamily.medium,
         color: colors.background,
         marginLeft: 8,
     },

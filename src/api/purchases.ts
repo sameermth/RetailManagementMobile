@@ -95,7 +95,7 @@ export const purchasesApi = {
         apiClient.post('/purchase-receipts', data),
 
     updatePaymentStatus: (id: number, paidAmount: number) =>
-        apiClient.post(`/purchases/${id}/payment`, null, {params: {paidAmount}}),
+        apiClient.post(`/purchase-receipts/${id}/payment`, null, {params: {paidAmount}}),
 
     getRecent: (limit: number = 10) =>
         apiClient.get<PurchaseResponse[]>('/purchases/recent', {params: {limit}}),

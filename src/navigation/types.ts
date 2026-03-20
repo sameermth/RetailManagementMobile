@@ -201,6 +201,11 @@ export type MoreStackParamList = {
     Data: undefined;
 };
 
+export type ProductsNavigatorProps = {
+    screen: keyof ProductsStackParamList;
+    params?: ProductsStackParamList[keyof ProductsStackParamList];
+};
+
 // Root Stack - Combines all stacks using intersection type
 export type RootStackParamList = AuthStackParamList
     & MainTabParamList
@@ -225,6 +230,7 @@ export type RootStackParamList = AuthStackParamList
     Splash: undefined;
     Auth: undefined;
     Main: undefined;
+    Products: ProductsNavigatorProps
 };
 
 declare global {

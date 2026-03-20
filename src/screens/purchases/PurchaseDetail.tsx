@@ -177,10 +177,10 @@ const PurchaseDetailScreen = () => {
         );
     }
 
-    const canApprove = purchase.status === 'PENDING_APPROVAL';
-    const canCancel = ['PENDING_APPROVAL', 'APPROVED', 'ORDERED'].includes(purchase.status);
-    const canReceive = purchase.status === 'ORDERED';
-    const canPay = purchase.status === 'RECEIVED' && purchase.pendingAmount > 0;
+    const canApprove = ['PENDING_APPROVAL'].includes(purchase.status);
+    const canCancel = ['PENDING_APPROVAL', 'APPROVED', 'ORDERED', 'PARTIALLY_RECEIVED'].includes(purchase.status);
+    const canReceive = ['APPROVED', 'ORDERED', 'PARTIALLY_RECEIVED'].includes(purchase.status);
+    const canPay = ['RECEIVED', 'PARTIALLY_RECEIVED', 'COMPLETED'].includes(purchase.status) && purchase.pendingAmount > 0;
 
     return (
         <ScrollView style={styles.container}>

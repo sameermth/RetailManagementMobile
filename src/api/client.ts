@@ -1,5 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {store} from "@store/index";
+import {logout} from "@store/slices/authSlice";
 
 const API_BASE_URL = 'http://localhost:8080/api'; // Change to your computer's IP for device testing
 
@@ -27,10 +29,12 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
-        if (error.response?.status === 401) {
+        if (error.response?.status === 403) {
             await AsyncStorage.removeItem('token');
             await AsyncStorage.removeItem('user');
             // Navigation will be handled by the navigation container
+
+            store.dispatch(logout());
         }
         return Promise.reject(error);
     }
