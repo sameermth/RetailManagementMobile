@@ -1,1 +1,4 @@
 /.idea/
+/.expo/
+/dist/
+/node_modules/
