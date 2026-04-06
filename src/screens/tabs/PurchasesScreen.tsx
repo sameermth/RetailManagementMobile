@@ -2,9 +2,14 @@ import React from "react";
 
 import { SettingsScreen } from "./SettingsScreen";
 
-export function PurchasesScreen() {
+export function PurchasesScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   return (
     <SettingsScreen
+      onDirtyChange={onDirtyChange}
       initialView="purchases"
       allowedViews={["purchases", "returns"]}
       title="Purchases"

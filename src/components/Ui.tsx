@@ -164,6 +164,21 @@ export function SectionHeader({
   );
 }
 
+export function BackButton({
+  label = "Back",
+  onPress,
+}: {
+  label?: string;
+  onPress?: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.backButton}>
+      <Ionicons name="arrow-back" size={18} color={theme.colors.textPrimary} />
+      <Text style={styles.backButtonText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function SearchableSelect({
   label,
   placeholder,
@@ -353,6 +368,23 @@ const styles = StyleSheet.create({
   },
   sectionAction: {
     color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  backButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  backButtonText: {
+    color: theme.colors.textPrimary,
     fontSize: 13,
     fontWeight: "700",
   },

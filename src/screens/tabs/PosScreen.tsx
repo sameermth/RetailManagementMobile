@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { SalesInvoice, SalesOrder, SalesQuote } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -30,7 +30,11 @@ const emptyLine: DraftLine = {
   discountAmount: "",
 };
 
-export function PosScreen() {
+export function PosScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const {
     convertOrderToInvoice,
     convertQuoteToInvoice,
@@ -46,7 +50,7 @@ export function PosScreen() {
     loadQuote,
     session,
   } = useAppData();
-  const [activeView, setActiveView] = useState<SalesView>("quotes");
+  const [viewHistory, setViewHistory] = useState<SalesView[]>(["quotes"]);
   const [draftType, setDraftType] = useState<DraftType>("quote");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -63,6 +67,7 @@ export function PosScreen() {
   const [receiptAmount, setReceiptAmount] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ ...emptyLine }]);
+  const activeView = viewHistory[viewHistory.length - 1] ?? "quotes";
 
   const customerMap = useMemo(() => new Map(data.customers.map((entry) => [entry.id, entry.fullName])), [data.customers]);
   const productMap = useMemo(() => new Map(data.products.map((entry) => [entry.id, entry])), [data.products]);
@@ -80,6 +85,26 @@ export function PosScreen() {
     `${entry.receiptNumber} ${customerMap.get(entry.customerId) ?? ""} ${entry.status ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const quoteDetail = detail && "quoteType" in detail ? detail : null;
+
+  function navigateView(view: SalesView) {
+    setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
+  }
+
+  function goBack() {
+    if (detail || selectedId) {
+      setDetail(null);
+      setSelectedId(null);
+      return;
+    }
+    if (isDraftDirty) {
+      confirmDiscard(() => {
+        resetDraft();
+        setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+      });
+      return;
+    }
+    setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }
 
   async function openDetail(id: number) {
     setSelectedId(id);
@@ -148,7 +173,7 @@ export function PosScreen() {
         }
       }
       resetDraft();
-      setActiveView(draftType === "receipt" ? "receipts" : draftType === "invoice" ? "invoices" : draftType === "order" ? "orders" : "quotes");
+      navigateView(draftType === "receipt" ? "receipts" : draftType === "invoice" ? "invoices" : draftType === "order" ? "orders" : "quotes");
     } finally {
       setSaving(false);
     }
@@ -189,13 +214,66 @@ export function PosScreen() {
   const customerOptions = data.customers.map((customer) => ({
     id: String(customer.id),
     label: customer.fullName,
-    meta: `${customer.customerCode}${customer.phone ? ` • ${customer.phone}` : ""}`,
+    meta: `${customer.customerCode}${customer.phone ? ` • ${customer.phone}` : ""}${customer.state ? ` • ${customer.state}` : ""}`,
   }));
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: `${product.sku}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}`,
+    meta: `${product.sku}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
   }));
+  const isDraftDirty =
+    activeView === "new" &&
+    (
+      customerId.trim().length > 0 ||
+      validUntil.trim().length > 0 ||
+      dueDate.trim().length > 0 ||
+      remarks.trim().length > 0 ||
+      receiptAmount.trim().length > 0 ||
+      referenceNumber.trim().length > 0 ||
+      lines.some((line) =>
+        line.productId.trim().length > 0 ||
+        line.uomId.trim().length > 0 ||
+        line.quantity !== emptyLine.quantity ||
+        line.baseQuantity !== emptyLine.baseQuantity ||
+        line.unitPrice.trim().length > 0 ||
+        line.taxRate.trim().length > 0 ||
+        line.discountAmount.trim().length > 0,
+      )
+    );
+
+  function confirmDiscard(onConfirm: () => void) {
+    const draftLabel =
+      draftType === "receipt"
+        ? "customer receipt draft"
+        : draftType === "invoice"
+          ? "sales invoice draft"
+          : draftType === "order"
+            ? "sales order draft"
+            : "sales quote draft";
+    Alert.alert("Discard changes?", `You have unsaved ${draftLabel} changes on this screen.`, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function navigateViewWithGuard(view: SalesView) {
+    if (view === activeView) {
+      return;
+    }
+    if (isDraftDirty) {
+      confirmDiscard(() => {
+        resetDraft();
+        navigateView(view);
+      });
+      return;
+    }
+    navigateView(view);
+  }
+
+  React.useEffect(() => {
+    onDirtyChange?.(isDraftDirty);
+    return () => onDirtyChange?.(false);
+  }, [isDraftDirty, onDirtyChange]);
 
   return (
     <View style={styles.wrap}>
@@ -204,11 +282,13 @@ export function PosScreen() {
         <Text style={styles.subheading}>Quotes, orders, invoices, receipts, and conversion flows now align with the ERP sales APIs and line-item payloads.</Text>
       </View>
 
+      {detail || selectedId || viewHistory.length > 1 ? <BackButton label={detail ? "Back to list" : "Back"} onPress={goBack} /> : null}
+
       <View style={styles.segmentRow}>
         {(["quotes", "orders", "invoices", "receipts", "new"] as const).map((view) => {
           const active = activeView === view;
           return (
-            <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.segment, active && styles.segmentActive]}>
+            <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
               <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{view === "new" ? "New Doc" : view[0].toUpperCase() + view.slice(1)}</Text>
             </Pressable>
           );
@@ -367,7 +447,7 @@ export function PosScreen() {
                 {"quoteNumber" in detail ? detail.quoteNumber : "orderNumber" in detail ? detail.orderNumber : detail.invoiceNumber}
               </Text>
               <Text style={styles.detailLine}>Customer: {customerMap.get(detail.customerId) || `Customer ${detail.customerId}`}</Text>
-              <Text style={styles.detailLine}>Warehouse id: {detail.warehouseId ?? "Not set"}</Text>
+              <Text style={styles.detailLine}>Warehouse: {detail.warehouseId ? `Warehouse ${detail.warehouseId}` : "Not set"}</Text>
               <Text style={styles.detailLine}>Status: {detail.status || "OPEN"}</Text>
               <Text style={styles.detailLine}>Subtotal: {formatCurrency(detail.subtotal ?? 0)}</Text>
               <Text style={styles.detailLine}>Tax: {formatCurrency(detail.taxAmount ?? 0)}</Text>
@@ -375,7 +455,7 @@ export function PosScreen() {
               {"outstandingAmount" in detail ? <Text style={styles.detailLine}>Outstanding: {formatCurrency(detail.outstandingAmount ?? 0)}</Text> : null}
               {detail.lines.map((line, index) => (
                 <Text key={`${detail.id}-${index}`} style={styles.detailLine}>
-                  {productMap.get(line.productId)?.name || `Product ${line.productId}`} • UOM {line.uomId} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitPrice ?? 0)}
+                  {productMap.get(line.productId)?.name || `Product ${line.productId}`} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • UOM {line.uomId} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitPrice ?? 0)}
                 </Text>
               ))}
               {activeView === "quotes" || activeView === "orders" ? (

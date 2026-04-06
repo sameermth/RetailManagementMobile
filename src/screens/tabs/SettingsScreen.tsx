@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { PurchaseOrder, PurchaseReceipt } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -41,6 +41,8 @@ type NotificationResponse = { notificationId?: string; status?: string; channel?
 type ReportSchedule = { id: number; scheduleName?: string; reportType?: string; format?: string; nextRunDate?: string; isActive?: boolean };
 type BranchRecord = { id: number; code?: string; name?: string; city?: string; state?: string; isActive?: boolean };
 type EmployeeRecord = { id: number; username?: string; fullName?: string; email?: string; roleCode?: string; defaultBranchId?: number; active?: boolean; branchAccess?: { branchId?: number; isDefault?: boolean }[] };
+type WarehouseRecord = { id: number; branchId?: number; code?: string; name?: string; isPrimary?: boolean; isActive?: boolean };
+type ExpenseCategoryRecord = { id: number; code?: string; name?: string; expenseAccountId?: number; isActive?: boolean };
 
 const emptyPurchaseLine: PurchaseLineDraft = {
   productId: "",
@@ -57,11 +59,13 @@ export function SettingsScreen({
   allowedViews,
   title = "System",
   subtitle = "Organization, service, finance, automation, and platform operations from the latest backend flows.",
+  onDirtyChange,
 }: {
   initialView?: MoreView;
   allowedViews?: MoreView[];
   title?: string;
   subtitle?: string;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const {
     apiGet,
@@ -79,7 +83,7 @@ export function SettingsScreen({
     signOut,
     updateSessionDraft,
   } = useAppData();
-  const [activeView, setActiveView] = useState<MoreView>(initialView);
+  const [viewHistory, setViewHistory] = useState<MoreView[]>([initialView]);
   const [draftType, setDraftType] = useState<PurchaseDraft>("order");
   const [supplierId, setSupplierId] = useState("");
   const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -107,11 +111,13 @@ export function SettingsScreen({
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategoryRecord[]>([]);
   const [bankSummary, setBankSummary] = useState<BankReconciliationSummary | null>(null);
   const [financeForm, setFinanceForm] = useState({ accountCode: "", accountName: "", accountType: "BANK", voucherAccountId: "", voucherDebit: "", voucherCredit: "", expenseCategoryId: "", expenseAmount: "", bankAccountId: "", fromDate: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().slice(0, 10), toDate: new Date().toISOString().slice(0, 10) });
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [branches, setBranches] = useState<BranchRecord[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
@@ -157,26 +163,207 @@ export function SettingsScreen({
     scheduleRecipients: "",
   });
   const [moduleMessage, setModuleMessage] = useState("");
+  const activeView = viewHistory[viewHistory.length - 1] ?? initialView;
   const visibleViews: MoreView[] = allowedViews ?? ["workspace", "purchases", "returns", "service", "finance", "system", "platform"];
+  const supplierMap = new Map(data.suppliers.map((supplier) => [supplier.id, supplier]));
+  const productMap = new Map(data.products.map((product) => [product.id, product]));
+  const customerMap = new Map(data.customers.map((customer) => [customer.id, customer]));
+  const branchMap = new Map(branches.map((branch) => [branch.id, branch]));
+  const warehouseMap = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse]));
+  const accountMap = new Map(accounts.map((account) => [account.id, account]));
   const supplierOptions = data.suppliers.map((supplier) => ({
     id: String(supplier.id),
     label: supplier.name,
-    meta: `${supplier.supplierCode}${supplier.phone ? ` • ${supplier.phone}` : ""}`,
+    meta: `${supplier.supplierCode}${supplier.phone ? ` • ${supplier.phone}` : ""}${supplier.state ? ` • ${supplier.state}` : ""}`,
   }));
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: product.sku || undefined,
+    meta: `${product.sku || ""}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
   }));
   const branchOptions = branches.map((branch) => ({
     id: String(branch.id),
     label: branch.name || branch.code || `Branch ${branch.id}`,
     meta: branch.code || branch.state || undefined,
   }));
+  const warehouseOptions = warehouses.map((warehouse) => ({
+    id: String(warehouse.id),
+    label: warehouse.name || warehouse.code || `Warehouse ${warehouse.id}`,
+    meta: `${warehouse.code || ""}${branchMap.get(warehouse.branchId ?? 0)?.name ? ` • ${branchMap.get(warehouse.branchId ?? 0)?.name}` : ""}${warehouse.isPrimary ? " • Primary" : ""}`,
+  }));
+  const expenseCategoryOptions = expenseCategories.map((category) => ({
+    id: String(category.id),
+    label: category.name || category.code || `Category ${category.id}`,
+    meta: category.code || undefined,
+  }));
+  const salesInvoiceOptions = data.invoices.map((invoice) => ({
+    id: String(invoice.id),
+    label: invoice.invoiceNumber || `Invoice ${invoice.id}`,
+    meta: `${customerMap.get(invoice.customerId)?.fullName || `Customer ${invoice.customerId}`}${invoice.invoiceDate ? ` • ${invoice.invoiceDate}` : ""}`,
+  }));
+  const purchaseReceiptOptions = data.purchaseReceipts.map((receipt) => ({
+    id: String(receipt.id),
+    label: receipt.receiptNumber || `Receipt ${receipt.id}`,
+    meta: `${supplierMap.get(receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`}${receipt.receiptDate ? ` • ${receipt.receiptDate}` : ""}`,
+  }));
+  const isPurchasesDirty =
+    activeView === "purchases" &&
+    (
+      supplierId.trim().length > 0 ||
+      dueDate.trim().length > 0 ||
+      purchaseOrderId.trim().length > 0 ||
+      remarks.trim().length > 0 ||
+      referenceNumber.trim().length > 0 ||
+      paymentAmount.trim().length > 0 ||
+      lines.some((line) =>
+        line.productId.trim().length > 0 ||
+        line.supplierProductId.trim().length > 0 ||
+        line.uomId.trim().length > 0 ||
+        line.quantity !== "1" ||
+        line.baseQuantity !== "1" ||
+        line.unitValue.trim().length > 0 ||
+        line.taxRate.trim().length > 0,
+      )
+    );
+  const isReturnsDirty =
+    activeView === "returns" &&
+    (
+      returnForm.originalId.trim().length > 0 ||
+      returnForm.productLineId.trim().length > 0 ||
+      returnForm.quantity !== "1" ||
+      returnForm.baseQuantity !== "1" ||
+      returnForm.reason.trim().length > 0
+    );
+  const isServiceDirty =
+    activeView === "service" &&
+    Object.values(serviceForm).some((value) => value.trim().length > 0);
+  const isFinanceDirty =
+    activeView === "finance" &&
+    (
+      financeForm.accountCode.trim().length > 0 ||
+      financeForm.accountName.trim().length > 0 ||
+      financeForm.voucherAccountId.trim().length > 0 ||
+      financeForm.voucherDebit.trim().length > 0 ||
+      financeForm.voucherCredit.trim().length > 0 ||
+      financeForm.expenseCategoryId.trim().length > 0 ||
+      financeForm.expenseAmount.trim().length > 0 ||
+      financeForm.bankAccountId.trim().length > 0
+    );
+  const isSystemDirty =
+    activeView === "system" &&
+    Object.values(systemForm).some((value) => value.trim().length > 0);
+  const isPlatformDirty =
+    activeView === "platform" &&
+    Object.values(platformForm).some((value) => value.trim().length > 0);
 
   useEffect(() => {
-    setActiveView(initialView);
+    setViewHistory([initialView]);
   }, [initialView]);
+
+  function navigateView(view: MoreView) {
+    setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
+  }
+
+  function confirmDiscard(onConfirm: () => void) {
+    const thing = isPurchasesDirty
+      ? "purchase form changes"
+      : isReturnsDirty
+        ? "return form changes"
+        : isServiceDirty
+          ? "service form changes"
+          : isFinanceDirty
+            ? "finance form changes"
+            : isSystemDirty
+              ? "system setup changes"
+              : "platform tooling changes";
+    Alert.alert("Discard changes?", `You have unsaved ${thing} in this module.`, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function resetDirtyState() {
+    setSupplierId("");
+    setDueDate("");
+    setPurchaseOrderId("");
+    setRemarks("");
+    setReferenceNumber("");
+    setPaymentAmount("");
+    setLines([{ ...emptyPurchaseLine }]);
+    setReturnForm({ kind: "sales", originalId: "", productLineId: "", quantity: "1", baseQuantity: "1", reason: "" });
+    setServiceForm({ customerId: "", productId: "", complaintSummary: "", priority: "HIGH", sourceType: "WALK_IN", claimType: "WARRANTY", replacementProductId: "", warehouseId: String(session?.warehouseId ?? "") });
+    setFinanceForm((current) => ({ ...current, accountCode: "", accountName: "", voucherAccountId: "", voucherDebit: "", voucherCredit: "", expenseCategoryId: "", expenseAmount: "", bankAccountId: "" }));
+    setSystemForm({
+      organizationName: "",
+      organizationCode: "",
+      organizationGstin: "",
+      branchCode: "",
+      branchName: "",
+      taxName: "",
+      taxGstin: "",
+      taxStateCode: "27",
+      thresholdAmount: "",
+      employeeUsername: "",
+      employeePassword: "",
+      employeeFullName: "",
+      employeeEmail: "",
+      employeePhone: "",
+      employeeRoleCode: "MANAGER",
+      employeeDefaultBranchId: "",
+    });
+    setPlatformForm({
+      emailTo: "",
+      emailSubject: "",
+      emailContent: "",
+      smsPhone: "",
+      smsMessage: "",
+      templateCode: "",
+      templateName: "",
+      templateType: "SYSTEM_ALERT",
+      templateChannel: "EMAIL",
+      scheduleName: "",
+      scheduleReportType: "SALES_SUMMARY",
+      scheduleFormat: "PDF",
+      scheduleFrequency: "DAILY",
+      scheduleCron: "0 0 9 * * *",
+      scheduleRecipients: "",
+    });
+  }
+
+  function navigateViewWithGuard(view: MoreView) {
+    if (view === activeView) {
+      return;
+    }
+    if (isPurchasesDirty || isReturnsDirty || isServiceDirty || isFinanceDirty || isSystemDirty || isPlatformDirty) {
+      confirmDiscard(() => {
+        resetDirtyState();
+        navigateView(view);
+      });
+      return;
+    }
+    navigateView(view);
+  }
+
+  React.useEffect(() => {
+    onDirtyChange?.(isPurchasesDirty || isReturnsDirty || isServiceDirty || isFinanceDirty || isSystemDirty || isPlatformDirty);
+    return () => onDirtyChange?.(false);
+  }, [isFinanceDirty, isPlatformDirty, isPurchasesDirty, isReturnsDirty, isServiceDirty, isSystemDirty, onDirtyChange]);
+
+  function goBack() {
+    if (selectedOrder || selectedReceipt) {
+      setSelectedOrder(null);
+      setSelectedReceipt(null);
+      return;
+    }
+    if (isPurchasesDirty || isReturnsDirty || isServiceDirty || isFinanceDirty || isSystemDirty || isPlatformDirty) {
+      confirmDiscard(() => {
+        resetDirtyState();
+        setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+      });
+      return;
+    }
+    setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }
 
   useEffect(() => {
     if (!session?.organizationId) return;
@@ -189,10 +376,14 @@ export function SettingsScreen({
       apiGet<WarrantyClaim[]>("/api/erp/service/warranty-claims", { query: { organizationId: session.organizationId } }).then(setClaims).catch(() => setClaims([]));
       apiGet<ServiceReplacement[]>("/api/erp/service/replacements", { query: { organizationId: session.organizationId } }).then(setReplacements).catch(() => setReplacements([]));
     }
+    if (activeView === "workspace" || activeView === "service" || activeView === "finance" || activeView === "system") {
+      apiGet<WarehouseRecord[]>("/api/erp/warehouses", { query: { organizationId: session.organizationId } }).then(setWarehouses).catch(() => setWarehouses([]));
+    }
     if (activeView === "finance") {
       apiGet<Account[]>("/api/erp/finance/accounts", { query: { organizationId: session.organizationId } }).then(setAccounts).catch(() => setAccounts([]));
       apiGet<Voucher[]>("/api/erp/finance/vouchers", { query: { organizationId: session.organizationId } }).then(setVouchers).catch(() => setVouchers([]));
       apiGet<Expense[]>("/api/erp/expenses", { query: { organizationId: session.organizationId } }).then(setExpenses).catch(() => setExpenses([]));
+      apiGet<ExpenseCategoryRecord[]>("/api/erp/expenses/categories", { query: { organizationId: session.organizationId } }).then(setExpenseCategories).catch(() => setExpenseCategories([]));
       apiPost<BankReconciliationSummary>("/api/erp/finance/bank-reconciliation/summary", {
         accountId: financeForm.bankAccountId ? Number(financeForm.bankAccountId) : 0,
         fromDate: financeForm.fromDate,
@@ -506,11 +697,13 @@ export function SettingsScreen({
         <Text style={styles.subheading}>{subtitle}</Text>
       </View>
 
+      {selectedOrder || selectedReceipt || viewHistory.length > 1 ? <BackButton label={selectedOrder || selectedReceipt ? "Back to list" : "Back"} onPress={goBack} /> : null}
+
       <View style={styles.segmentRow}>
         {visibleViews.map((view) => {
           const active = view === activeView;
           return (
-            <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.segment, active && styles.segmentActive]}>
+            <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
               <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{view[0].toUpperCase() + view.slice(1)}</Text>
             </Pressable>
           );
@@ -535,6 +728,13 @@ export function SettingsScreen({
             <Text style={styles.entityMeta}>Permissions loaded: {session?.permissions.length ?? 0}</Text>
           </GlassCard>
           <GlassCard style={styles.formCard}>
+            <SearchableSelect
+              label="Find default warehouse"
+              placeholder="Search warehouses"
+              selectedLabel={warehouses.find((warehouse) => String(warehouse.id) === String(session?.warehouseId ?? ""))?.name}
+              options={warehouseOptions}
+              onSelect={(id) => updateSessionDraft({ warehouseId: id })}
+            />
             <TextInput defaultValue={String(session?.warehouseId ?? "")} onChangeText={(value) => updateSessionDraft({ warehouseId: value })} placeholder="Default warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <ActionButton label="Refresh backend data" icon="refresh" onPress={refreshAll} />
             <ActionButton label="Sign out" icon="log-out" inverted onPress={signOut} />
@@ -574,6 +774,7 @@ export function SettingsScreen({
               })}
             </View>
             <TextInput value={supplierId} onChangeText={setSupplierId} placeholder="Supplier id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <Text style={styles.helperText}>Selected supplier: {supplierMap.get(Number(supplierId))?.name || "Pick a supplier to link documents and lines."}</Text>
             <TextInput value={documentDate} onChangeText={setDocumentDate} placeholder="Document date" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             {draftType === "receipt" ? <TextInput value={purchaseOrderId} onChangeText={setPurchaseOrderId} placeholder="Purchase order id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" /> : null}
             {draftType === "receipt" ? <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Due date" placeholderTextColor={theme.colors.textMuted} style={styles.input} /> : null}
@@ -641,7 +842,7 @@ export function SettingsScreen({
           <View style={styles.list}>
             {data.purchaseOrders.map((order) => (
               <Pressable key={order.id} onPress={async () => setSelectedOrder(await loadPurchaseOrder(order.id))}>
-                <DocCard title={order.poNumber || `PO ${order.id}`} subtitle={`Supplier ${order.supplierId} • ${order.poDate || "No date"}`} amount={order.totalAmount ?? 0} status={order.status || "OPEN"} />
+                <DocCard title={order.poNumber || `PO ${order.id}`} subtitle={`${supplierMap.get(order.supplierId)?.name || `Supplier ${order.supplierId}`} • ${order.poDate || "No date"}`} amount={order.totalAmount ?? 0} status={order.status || "OPEN"} />
               </Pressable>
             ))}
           </View>
@@ -649,18 +850,18 @@ export function SettingsScreen({
           <View style={styles.list}>
             {data.purchaseReceipts.map((receipt) => (
               <Pressable key={receipt.id} onPress={async () => setSelectedReceipt(await loadPurchaseReceipt(receipt.id))}>
-                <DocCard title={receipt.receiptNumber || `PR ${receipt.id}`} subtitle={`Supplier ${receipt.supplierId} • ${receipt.receiptDate || "No date"}`} amount={receipt.totalAmount ?? 0} status={receipt.status || "OPEN"} />
+                <DocCard title={receipt.receiptNumber || `PR ${receipt.id}`} subtitle={`${supplierMap.get(receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`} • ${receipt.receiptDate || "No date"}`} amount={receipt.totalAmount ?? 0} status={receipt.status || "OPEN"} />
               </Pressable>
             ))}
           </View>
           <SectionHeader title="Supplier payments" action={`${data.supplierPayments.length} docs`} />
           <View style={styles.list}>
             {data.supplierPayments.map((payment) => (
-              <DocCard key={payment.id} title={payment.paymentNumber || `PAY ${payment.id}`} subtitle={`Supplier ${payment.supplierId} • ${payment.paymentDate || "No date"}`} amount={payment.amount ?? 0} status={payment.status || "POSTED"} />
+              <DocCard key={payment.id} title={payment.paymentNumber || `PAY ${payment.id}`} subtitle={`${supplierMap.get(payment.supplierId)?.name || `Supplier ${payment.supplierId}`} • ${payment.paymentDate || "No date"}`} amount={payment.amount ?? 0} status={payment.status || "POSTED"} />
             ))}
           </View>
-          {selectedOrder ? <PurchaseDetail title={selectedOrder.poNumber || `PO ${selectedOrder.id}`} lines={selectedOrder.lines} total={selectedOrder.totalAmount ?? 0} /> : null}
-          {selectedReceipt ? <PurchaseDetail title={selectedReceipt.receiptNumber || `PR ${selectedReceipt.id}`} lines={selectedReceipt.lines} total={selectedReceipt.totalAmount ?? 0} /> : null}
+          {selectedOrder ? <PurchaseDetail title={selectedOrder.poNumber || `PO ${selectedOrder.id}`} lines={selectedOrder.lines} total={selectedOrder.totalAmount ?? 0} productMap={productMap} /> : null}
+          {selectedReceipt ? <PurchaseDetail title={selectedReceipt.receiptNumber || `PR ${selectedReceipt.id}`} lines={selectedReceipt.lines} total={selectedReceipt.totalAmount ?? 0} productMap={productMap} /> : null}
         </>
       ) : null}
 
@@ -678,6 +879,23 @@ export function SettingsScreen({
                 );
               })}
             </View>
+            {returnForm.kind === "sales" ? (
+              <SearchableSelect
+                label="Find original sales invoice"
+                placeholder="Search invoices"
+                selectedLabel={data.invoices.find((invoice) => String(invoice.id) === returnForm.originalId)?.invoiceNumber}
+                options={salesInvoiceOptions}
+                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id }))}
+              />
+            ) : (
+              <SearchableSelect
+                label="Find original purchase receipt"
+                placeholder="Search purchase receipts"
+                selectedLabel={data.purchaseReceipts.find((receipt) => String(receipt.id) === returnForm.originalId)?.receiptNumber}
+                options={purchaseReceiptOptions}
+                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id }))}
+              />
+            )}
             <TextInput value={returnForm.originalId} onChangeText={(value) => setReturnForm((current) => ({ ...current, originalId: value }))} placeholder={returnForm.kind === "sales" ? "Original invoice id" : "Original purchase receipt id"} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={returnForm.productLineId} onChangeText={(value) => setReturnForm((current) => ({ ...current, productLineId: value }))} placeholder="Original line id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <View style={styles.rowBetween}>
@@ -685,6 +903,11 @@ export function SettingsScreen({
               <TextInput value={returnForm.baseQuantity} onChangeText={(value) => setReturnForm((current) => ({ ...current, baseQuantity: value }))} placeholder="Base quantity" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
             </View>
             <TextInput value={returnForm.reason} onChangeText={(value) => setReturnForm((current) => ({ ...current, reason: value }))} placeholder="Reason" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <Text style={styles.helperText}>
+              {returnForm.kind === "sales"
+                ? `Selected invoice: ${data.invoices.find((invoice) => String(invoice.id) === returnForm.originalId)?.invoiceNumber || "Choose a source invoice"}`
+                : `Selected receipt: ${data.purchaseReceipts.find((receipt) => String(receipt.id) === returnForm.originalId)?.receiptNumber || "Choose a source receipt"}`}
+            </Text>
             <ActionButton label="Create return" icon="return-up-back" onPress={handleCreateReturn} />
           </GlassCard>
           <SectionHeader title="Sales returns" action={`${salesReturns.length} docs`} />
@@ -720,6 +943,20 @@ export function SettingsScreen({
               }))}
               onSelect={(id) => setServiceForm((current) => ({ ...current, productId: id }))}
             />
+            <SearchableSelect
+              label="Find replacement product"
+              placeholder="Search products"
+              selectedLabel={data.products.find((product) => String(product.id) === serviceForm.replacementProductId)?.name}
+              options={productOptions}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, replacementProductId: id }))}
+            />
+            <SearchableSelect
+              label="Find warehouse"
+              placeholder="Search warehouses"
+              selectedLabel={warehouses.find((warehouse) => String(warehouse.id) === serviceForm.warehouseId)?.name}
+              options={warehouseOptions}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, warehouseId: id }))}
+            />
             <View style={styles.quickPickWrap}>
               {data.customers.slice(0, 6).map((customer) => (
                 <Pressable key={customer.id} onPress={() => setServiceForm((current) => ({ ...current, customerId: String(customer.id) }))} style={styles.quickPick}>
@@ -740,6 +977,10 @@ export function SettingsScreen({
             <TextInput value={serviceForm.priority} onChangeText={(value) => setServiceForm((current) => ({ ...current, priority: value }))} placeholder="Priority" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={serviceForm.claimType} onChangeText={(value) => setServiceForm((current) => ({ ...current, claimType: value }))} placeholder="Claim type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={serviceForm.replacementProductId} onChangeText={(value) => setServiceForm((current) => ({ ...current, replacementProductId: value }))} placeholder="Replacement product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <TextInput value={serviceForm.warehouseId} onChangeText={(value) => setServiceForm((current) => ({ ...current, warehouseId: value }))} placeholder="Warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <Text style={styles.helperText}>
+              Customer {customerMap.get(Number(serviceForm.customerId))?.fullName || "not selected"} • Product {productMap.get(Number(serviceForm.productId))?.name || "not selected"} • Replacement {productMap.get(Number(serviceForm.replacementProductId))?.name || "not selected"} • Warehouse {warehouseMap.get(Number(serviceForm.warehouseId))?.name || "not selected"}
+            </Text>
             <ActionButton label="Create ticket" icon="construct" onPress={handleCreateServiceTicket} />
             <ActionButton label="Create claim" icon="shield-checkmark" inverted onPress={handleCreateClaim} />
             <ActionButton label="Issue replacement" icon="repeat" inverted onPress={handleCreateReplacement} />
@@ -779,6 +1020,13 @@ export function SettingsScreen({
               }))}
               onSelect={(id) => setFinanceForm((current) => ({ ...current, bankAccountId: id }))}
             />
+            <SearchableSelect
+              label="Find expense category"
+              placeholder="Search expense categories"
+              selectedLabel={expenseCategories.find((category) => String(category.id) === financeForm.expenseCategoryId)?.name}
+              options={expenseCategoryOptions}
+              onSelect={(id) => setFinanceForm((current) => ({ ...current, expenseCategoryId: id }))}
+            />
             <TextInput value={financeForm.accountCode} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountCode: value }))} placeholder="New account code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={financeForm.accountName} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountName: value }))} placeholder="New account name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={financeForm.accountType} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountType: value }))} placeholder="Account type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
@@ -790,6 +1038,9 @@ export function SettingsScreen({
             <TextInput value={financeForm.expenseCategoryId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseCategoryId: value }))} placeholder="Expense category id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={financeForm.expenseAmount} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseAmount: value }))} placeholder="Expense amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={financeForm.bankAccountId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, bankAccountId: value }))} placeholder="Bank account id for reconciliation" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <Text style={styles.helperText}>
+              Voucher account {accountMap.get(Number(financeForm.voucherAccountId))?.name || "not selected"} • Expense category {expenseCategories.find((category) => String(category.id) === financeForm.expenseCategoryId)?.name || "not selected"} • Bank account {accountMap.get(Number(financeForm.bankAccountId))?.name || "not selected"}
+            </Text>
             <ActionButton label="Submit finance records" icon="cash" onPress={handleCreateFinanceRecords} />
           </GlassCard>
           <View style={styles.cardStack}>
@@ -819,6 +1070,7 @@ export function SettingsScreen({
               options={branchOptions}
               onSelect={(id) => setSystemForm((current) => ({ ...current, employeeDefaultBranchId: id }))}
             />
+            <Text style={styles.helperText}>Default branch: {branchMap.get(Number(systemForm.employeeDefaultBranchId))?.name || "Choose the employee's home branch"}</Text>
             <TextInput value={systemForm.organizationName} onChangeText={(value) => setSystemForm((current) => ({ ...current, organizationName: value }))} placeholder="New organization name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.organizationCode} onChangeText={(value) => setSystemForm((current) => ({ ...current, organizationCode: value }))} placeholder="New organization code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.organizationGstin} onChangeText={(value) => setSystemForm((current) => ({ ...current, organizationGstin: value }))} placeholder="Organization GSTIN" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
@@ -864,7 +1116,7 @@ export function SettingsScreen({
           <SectionHeader title="Branches" action={`${branches.length} records`} />
           <View style={styles.list}>{branches.map((item) => <DocCard key={item.id} title={item.name || item.code || `BR ${item.id}`} subtitle={`${item.code || "-"} • ${item.city || item.state || "Branch"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
           <SectionHeader title="Employees" action={`${employees.length} records`} />
-          <View style={styles.list}>{employees.map((item) => <DocCard key={item.id} title={item.fullName || item.username || `EMP ${item.id}`} subtitle={`${item.username || "-"} • ${item.roleCode || "-"} • ${item.branchAccess?.length ?? 0} branches`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <View style={styles.list}>{employees.map((item) => <DocCard key={item.id} title={item.fullName || item.username || `EMP ${item.id}`} subtitle={`${item.username || "-"} • ${item.roleCode || "-"} • ${branchMap.get(item.defaultBranchId ?? 0)?.name || `${item.branchAccess?.length ?? 0} branches`}`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
           <SectionHeader title="Tax registrations" action={`${taxRegistrations.length} records`} />
           <View style={styles.list}>{taxRegistrations.map((item) => <DocCard key={item.id} title={item.registrationName || `REG ${item.id}`} subtitle={`${item.registrationStateCode || "-"} • ${item.gstin || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
           <SectionHeader title="Users" action={`${users.length} records`} />
@@ -912,13 +1164,23 @@ export function SettingsScreen({
   );
 }
 
-function PurchaseDetail({ title, lines, total }: { title: string; lines: PurchaseOrder["lines"] | PurchaseReceipt["lines"]; total: number }) {
+function PurchaseDetail({
+  title,
+  lines,
+  total,
+  productMap,
+}: {
+  title: string;
+  lines: PurchaseOrder["lines"] | PurchaseReceipt["lines"];
+  total: number;
+  productMap: Map<number, { name: string; sku: string }>;
+}) {
   return (
     <GlassCard style={styles.formCard}>
       <Text style={styles.entityTitle}>{title}</Text>
       {lines.map((line, index) => (
         <Text key={`${title}-${index}`} style={styles.entityMeta}>
-          Product {line.productId} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitValue ?? 0)}
+          {productMap.get(line.productId)?.name || `Product ${line.productId}`} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitValue ?? 0)}
         </Text>
       ))}
       <Text style={styles.entityValue}>{formatCurrency(total)}</Text>

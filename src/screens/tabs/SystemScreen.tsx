@@ -2,9 +2,14 @@ import React from "react";
 
 import { SettingsScreen } from "./SettingsScreen";
 
-export function SystemScreen() {
+export function SystemScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   return (
     <SettingsScreen
+      onDirtyChange={onDirtyChange}
       initialView="system"
       allowedViews={["workspace", "service", "system", "platform"]}
       title="System"

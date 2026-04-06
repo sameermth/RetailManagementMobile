@@ -27,6 +27,7 @@ export type SessionState = {
 };
 
 export type SessionDraft = {
+  baseUrl: string;
   organizationId: string;
   warehouseId: string;
   username: string;
@@ -513,6 +514,7 @@ export const emptyData: AppData = {
 };
 
 export const defaultSessionDraft: SessionDraft = {
+  baseUrl: "",
   organizationId: "",
   warehouseId: "",
   username: "",

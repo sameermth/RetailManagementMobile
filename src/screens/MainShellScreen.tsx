@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Alert, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Screen } from "../components/Screen";
 import { theme } from "../theme/theme";
@@ -26,28 +26,89 @@ const modules: { key: AppModuleKey; label: string; icon: keyof typeof Ionicons.g
 ];
 
 export function MainShellScreen() {
-  const [activeModule, setActiveModule] = useState<AppModuleKey>("dashboard");
+  const [history, setHistory] = useState<AppModuleKey[]>(["dashboard"]);
+  const [moduleDirty, setModuleDirty] = useState(false);
+  const activeModule = history[history.length - 1] ?? "dashboard";
+
+  function confirmDiscard(onConfirm: () => void) {
+    const thing =
+      activeModule === "sales"
+        ? "sales changes"
+        : activeModule === "purchases"
+          ? "purchase changes"
+          : activeModule === "inventory"
+            ? "inventory changes"
+            : activeModule === "people"
+              ? "party changes"
+              : activeModule === "finance"
+                ? "finance changes"
+                : activeModule === "system"
+                  ? "system changes"
+                  : "changes";
+    Alert.alert("Discard changes?", `You have unsaved ${thing} in the current module.`, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function navigateTo(module: AppModuleKey) {
+    if (module === activeModule) {
+      return;
+    }
+    if (moduleDirty) {
+      confirmDiscard(() => {
+        setModuleDirty(false);
+        setHistory((current) => [...current, module]);
+      });
+      return;
+    }
+    setHistory((current) => {
+      return [...current, module];
+    });
+  }
+
+  function goBack() {
+    if (moduleDirty) {
+      confirmDiscard(() => {
+        setModuleDirty(false);
+        setHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+      });
+      return;
+    }
+    setHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (history.length > 1) {
+        goBack();
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [history.length]);
 
   const activeItem = modules.find((item) => item.key === activeModule) ?? modules[0];
   const content = useMemo(() => {
     switch (activeModule) {
       case "sales":
-        return <PosScreen />;
+        return <PosScreen onDirtyChange={setModuleDirty} />;
       case "purchases":
-        return <PurchasesScreen />;
+        return <PurchasesScreen onDirtyChange={setModuleDirty} />;
       case "inventory":
-        return <InventoryScreen />;
+        return <InventoryScreen onDirtyChange={setModuleDirty} />;
       case "people":
-        return <CustomersScreen />;
+        return <CustomersScreen onDirtyChange={setModuleDirty} />;
       case "finance":
-        return <FinanceScreen />;
+        return <FinanceScreen onDirtyChange={setModuleDirty} />;
       case "reports":
         return <ReportsScreen />;
       case "system":
-        return <SystemScreen />;
+        return <SystemScreen onDirtyChange={setModuleDirty} />;
       case "dashboard":
       default:
-        return <DashboardScreen onNavigate={setActiveModule} />;
+        return <DashboardScreen onNavigate={navigateTo} />;
     }
   }, [activeModule]);
 
@@ -55,9 +116,19 @@ export function MainShellScreen() {
     <View style={styles.root}>
       <Screen>
         <View style={styles.header}>
-          <Text style={styles.shellEyebrow}>Retail Management</Text>
-          <Text style={styles.shellTitle}>{activeItem.label}</Text>
-          <Text style={styles.shellDescription}>{activeItem.description}</Text>
+          <View style={styles.headerRow}>
+            <View style={styles.headerTextWrap}>
+              <Text style={styles.shellEyebrow}>Retail Management</Text>
+              <Text style={styles.shellTitle}>{activeItem.label}</Text>
+              <Text style={styles.shellDescription}>{activeItem.description}</Text>
+            </View>
+            {history.length > 1 ? (
+              <Pressable onPress={goBack} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={18} color={theme.colors.textPrimary} />
+                <Text style={styles.backButtonText}>Back</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
 
         <ScrollView
@@ -70,7 +141,7 @@ export function MainShellScreen() {
             return (
               <Pressable
                 key={module.key}
-                onPress={() => setActiveModule(module.key)}
+                onPress={() => navigateTo(module.key)}
                 style={[styles.moduleChip, active && styles.moduleChipActive]}
               >
                 <Ionicons
@@ -100,6 +171,15 @@ const styles = StyleSheet.create({
     gap: 4,
     marginBottom: theme.spacing.md,
   },
+  headerRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between",
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
   shellEyebrow: {
     color: theme.colors.textSecondary,
     fontSize: 12,
@@ -117,6 +197,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     lineHeight: 20,
+  },
+  backButton: {
+    alignItems: "center",
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  backButtonText: {
+    color: theme.colors.textPrimary,
+    fontSize: 13,
+    fontWeight: "700",
   },
   moduleRail: {
     gap: 10,

@@ -2,9 +2,14 @@ import React from "react";
 
 import { SettingsScreen } from "./SettingsScreen";
 
-export function FinanceScreen() {
+export function FinanceScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   return (
     <SettingsScreen
+      onDirtyChange={onDirtyChange}
       initialView="finance"
       allowedViews={["finance"]}
       title="Finance"

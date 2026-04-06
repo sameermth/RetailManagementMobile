@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, GlassCard, Pill, SectionHeader } from "../../components/Ui";
+import { ActionButton, BackButton, GlassCard, Pill, SectionHeader } from "../../components/Ui";
 import { Customer, StoreCustomerTerms, StoreSupplierTerms, Supplier, SupplierCatalog } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -32,7 +32,11 @@ const blankPartyForm = {
   status: "ACTIVE",
 };
 
-export function CustomersScreen() {
+export function CustomersScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const {
     createCustomer,
     createSupplier,
@@ -46,7 +50,7 @@ export function CustomersScreen() {
     updateCustomer,
     updateSupplier,
   } = useAppData();
-  const [activeView, setActiveView] = useState<PartyView>("customers");
+  const [viewHistory, setViewHistory] = useState<PartyView[]>(["customers"]);
   const [partyMode, setPartyMode] = useState<PartyMode>("customer");
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -55,6 +59,7 @@ export function CustomersScreen() {
   const [supplierTerms, setSupplierTerms] = useState<StoreSupplierTerms | null>(null);
   const [supplierCatalog, setSupplierCatalog] = useState<SupplierCatalog | null>(null);
   const [saving, setSaving] = useState(false);
+  const activeView = viewHistory[viewHistory.length - 1] ?? "customers";
 
   const customers = data.customers.filter((customer) =>
     `${customer.fullName} ${customer.customerCode} ${customer.phone ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
@@ -123,6 +128,57 @@ export function CustomersScreen() {
   const selectedParty = useMemo(() => {
     return activeView === "suppliers" ? selectedSupplier : selectedCustomer;
   }, [activeView, selectedCustomer, selectedSupplier]);
+  const isFormDirty =
+    activeView === "new" &&
+    Object.entries(form).some(([key, value]) => {
+      const baseline = blankPartyForm[key as keyof typeof blankPartyForm];
+      return value !== baseline;
+    });
+
+  function navigateView(view: PartyView) {
+    setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
+  }
+
+  function confirmDiscard(onConfirm: () => void) {
+    Alert.alert("Discard changes?", `You have unsaved ${partyMode === "customer" ? "customer" : "supplier"} form changes on this screen.`, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function navigateViewWithGuard(view: PartyView) {
+    if (view === activeView) {
+      return;
+    }
+    if (isFormDirty) {
+      confirmDiscard(() => {
+        setForm(blankPartyForm);
+        navigateView(view);
+      });
+      return;
+    }
+    navigateView(view);
+  }
+
+  React.useEffect(() => {
+    onDirtyChange?.(isFormDirty);
+    return () => onDirtyChange?.(false);
+  }, [isFormDirty, onDirtyChange]);
+
+  function goBack() {
+    if (selectedId != null) {
+      setSelectedId(null);
+      return;
+    }
+    if (isFormDirty) {
+      confirmDiscard(() => {
+        setForm(blankPartyForm);
+        setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+      });
+      return;
+    }
+    setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -149,7 +205,7 @@ export function CustomersScreen() {
           notes: form.notes || null,
           status: form.status,
         });
-        setActiveView("customers");
+        navigateView("customers");
       } else {
         await createSupplier({
           supplierCode: form.code,
@@ -171,7 +227,7 @@ export function CustomersScreen() {
           notes: form.notes || null,
           status: form.status,
         });
-        setActiveView("suppliers");
+        navigateView("suppliers");
       }
       setForm(blankPartyForm);
     } finally {
@@ -247,11 +303,13 @@ export function CustomersScreen() {
         <Text style={styles.subheading}>Customers and suppliers now follow the dedicated phase 1 party contracts, including terms and supplier catalogs.</Text>
       </View>
 
+      {selectedId != null || viewHistory.length > 1 ? <BackButton label={selectedId != null ? "Back to list" : "Back"} onPress={goBack} /> : null}
+
       <View style={styles.segmentRow}>
         {(["customers", "suppliers", "new"] as const).map((view) => {
           const active = activeView === view;
           return (
-            <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.segment, active && styles.segmentActive]}>
+            <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
               <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{view === "new" ? "New Party" : view[0].toUpperCase() + view.slice(1)}</Text>
             </Pressable>
           );

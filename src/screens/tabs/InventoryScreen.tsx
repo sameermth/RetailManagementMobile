@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { StoreProduct } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -79,6 +79,15 @@ type ProductScanResponse = {
   };
 };
 
+type WarehouseRecord = {
+  id: number;
+  branchId?: number;
+  code?: string;
+  name?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
+};
+
 const blankForm = {
   productId: "",
   categoryId: "",
@@ -94,9 +103,13 @@ const blankForm = {
   defaultSalePrice: "",
 };
 
-export function InventoryScreen() {
+export function InventoryScreen({
+  onDirtyChange,
+}: {
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const { apiGet, apiPost, createProduct, data, error, refreshing, session } = useAppData();
-  const [activeView, setActiveView] = useState<InventoryView>("catalog");
+  const [viewHistory, setViewHistory] = useState<InventoryView[]>(["catalog"]);
   const [query, setQuery] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm);
@@ -108,25 +121,119 @@ export function InventoryScreen() {
   const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [reservations, setReservations] = useState<InventoryReservation[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([]);
   const [operationMsg, setOperationMsg] = useState("");
   const [adjustment, setAdjustment] = useState({ productId: "", uomId: "", quantityDelta: "", baseQuantityDelta: "", unitCost: "", reason: "" });
   const [transfer, setTransfer] = useState({ fromWarehouseId: String(session?.warehouseId ?? ""), toWarehouseId: "", productId: "", uomId: "", quantity: "1", baseQuantity: "1" });
+  const activeView = viewHistory[viewHistory.length - 1] ?? "catalog";
 
   const selectedProduct = data.products.find((item) => item.id === selectedProductId) ?? null;
+  const productMap = useMemo(() => new Map(data.products.map((product) => [product.id, product])), [data.products]);
+  const warehouseMap = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: `${product.sku}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
+    meta: `${product.sku}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}`,
   }));
   const catalogOptions = data.productCatalog.map((product) => ({
     id: String(product.id),
     label: product.name,
     meta: `${product.brandName || "No brand"}${product.categoryName ? ` • ${product.categoryName}` : ""}`,
   }));
+  const warehouseOptions = warehouses.map((warehouse) => ({
+    id: String(warehouse.id),
+    label: warehouse.name || warehouse.code || `Warehouse ${warehouse.id}`,
+    meta: `${warehouse.code || ""}${warehouse.isPrimary ? " • Primary" : ""}`,
+  }));
   const filteredItems = useMemo(() => {
     const term = query.trim().toLowerCase();
     return data.products.filter((item) => `${item.name} ${item.sku} ${item.inventoryTrackingMode ?? ""}`.toLowerCase().includes(term));
   }, [data.products, query]);
+  const isCatalogFormDirty =
+    activeView === "catalog" &&
+    Object.entries(form).some(([key, value]) => value !== blankForm[key as keyof typeof blankForm]);
+  const isAdjustmentDirty =
+    activeView === "operations" &&
+    Object.values(adjustment).some((value) => value.trim().length > 0);
+  const isTransferDirty =
+    activeView === "operations" &&
+    (
+      transfer.toWarehouseId.trim().length > 0 ||
+      transfer.productId.trim().length > 0 ||
+      transfer.uomId.trim().length > 0 ||
+      transfer.quantity !== "1" ||
+      transfer.baseQuantity !== "1"
+    );
+
+  function navigateView(view: InventoryView) {
+    setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
+  }
+
+  function confirmDiscard(onConfirm: () => void) {
+    const thing = isCatalogFormDirty
+      ? "product catalog form changes"
+      : isAdjustmentDirty
+        ? "stock adjustment changes"
+        : "stock transfer changes";
+    Alert.alert("Discard changes?", `You have unsaved ${thing} on this screen.`, [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: onConfirm },
+    ]);
+  }
+
+  function navigateViewWithGuard(view: InventoryView) {
+    if (view === activeView) {
+      return;
+    }
+    if (isCatalogFormDirty || isAdjustmentDirty || isTransferDirty) {
+      confirmDiscard(() => {
+        setForm(blankForm);
+        setAdjustment({ productId: "", uomId: "", quantityDelta: "", baseQuantityDelta: "", unitCost: "", reason: "" });
+        setTransfer({ fromWarehouseId: String(session?.warehouseId ?? ""), toWarehouseId: "", productId: "", uomId: "", quantity: "1", baseQuantity: "1" });
+        navigateView(view);
+      });
+      return;
+    }
+    navigateView(view);
+  }
+
+  React.useEffect(() => {
+    onDirtyChange?.(isCatalogFormDirty || isAdjustmentDirty || isTransferDirty);
+    return () => onDirtyChange?.(false);
+  }, [isAdjustmentDirty, isCatalogFormDirty, isTransferDirty, onDirtyChange]);
+
+  function goBack() {
+    if (activeView === "catalog" && selectedProductId) {
+      setSelectedProductId(null);
+      return;
+    }
+    if (activeView === "tracking" && scanResult) {
+      setScanResult(null);
+      return;
+    }
+    if ((activeView === "tracking" || activeView === "movements") && selectedProductId) {
+      setSelectedProductId(null);
+      return;
+    }
+    if (isCatalogFormDirty || isAdjustmentDirty || isTransferDirty) {
+      confirmDiscard(() => {
+        setForm(blankForm);
+        setAdjustment({ productId: "", uomId: "", quantityDelta: "", baseQuantityDelta: "", unitCost: "", reason: "" });
+        setTransfer({ fromWarehouseId: String(session?.warehouseId ?? ""), toWarehouseId: "", productId: "", uomId: "", quantity: "1", baseQuantity: "1" });
+        setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+      });
+      return;
+    }
+    setViewHistory((current) => (current.length > 1 ? current.slice(0, -1) : current));
+  }
+
+  useEffect(() => {
+    if (session?.organizationId && (activeView === "balances" || activeView === "operations" || activeView === "movements" || activeView === "tracking")) {
+      apiGet<WarehouseRecord[]>("/api/erp/warehouses", {
+        query: { organizationId: session.organizationId },
+      }).then(setWarehouses).catch(() => setWarehouses([]));
+    }
+  }, [activeView, apiGet, session?.organizationId]);
 
   useEffect(() => {
     if (activeView === "balances" && session?.organizationId && session?.warehouseId) {
@@ -241,11 +348,13 @@ export function InventoryScreen() {
         <Text style={styles.subheading}>Catalog, scan, tracking, balances, reservations, stock movements, and manual inventory operations are now part of the mobile app.</Text>
       </View>
 
+      {selectedProductId || scanResult || viewHistory.length > 1 ? <BackButton label={selectedProductId || scanResult ? "Back" : "Back"} onPress={goBack} /> : null}
+
       <View style={styles.segmentRow}>
         {(["catalog", "tracking", "balances", "operations", "movements"] as const).map((view) => {
           const active = activeView === view;
           return (
-            <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.segment, active && styles.segmentActive]}>
+            <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
               <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{view[0].toUpperCase() + view.slice(1)}</Text>
             </Pressable>
           );
@@ -392,7 +501,7 @@ export function InventoryScreen() {
 
       {activeView === "balances" ? (
         <>
-          <SectionHeader title="Warehouse balances" action={`Warehouse ${session?.warehouseId ?? "-"}`} />
+          <SectionHeader title="Warehouse balances" action={warehouseMap.get(session?.warehouseId ?? 0)?.name || `Warehouse ${session?.warehouseId ?? "-"}`} />
           <SearchableSelect
             label="Highlight a product"
             placeholder="Search store products"
@@ -405,7 +514,7 @@ export function InventoryScreen() {
               .filter((balance) => (selectedProductId ? balance.productId === selectedProductId : true))
               .map((balance) => (
               <GlassCard key={balance.id} style={styles.productCard}>
-                <Text style={styles.productName}>Product {balance.productId}</Text>
+                <Text style={styles.productName}>{productMap.get(balance.productId)?.name || `Product ${balance.productId}`}</Text>
                 <Text style={styles.productMeta}>On hand {balance.onHandBaseQuantity ?? 0} • Reserved {balance.reservedBaseQuantity ?? 0}</Text>
                 <Text style={styles.detailLine}>Available {balance.availableBaseQuantity ?? 0} • Avg cost {formatCurrency(balance.avgCost ?? 0)}</Text>
               </GlassCard>
@@ -416,7 +525,7 @@ export function InventoryScreen() {
             {reservations.map((reservation) => (
               <GlassCard key={reservation.id} style={styles.productCard}>
                 <Text style={styles.productName}>{reservation.sourceDocumentType || "Reservation"} #{reservation.sourceDocumentId ?? reservation.id}</Text>
-                <Text style={styles.productMeta}>Product {reservation.productId} • Qty {reservation.reservedBaseQuantity ?? 0}</Text>
+                <Text style={styles.productMeta}>{productMap.get(reservation.productId)?.name || `Product ${reservation.productId}`} • Qty {reservation.reservedBaseQuantity ?? 0}</Text>
                 <Text style={styles.detailLine}>{reservation.status || "ACTIVE"} • Expires {reservation.expiresAt || "-"}</Text>
               </GlassCard>
             ))}
@@ -485,6 +594,20 @@ export function InventoryScreen() {
                 }));
               }}
             />
+            <SearchableSelect
+              label="From warehouse"
+              placeholder="Search warehouses"
+              selectedLabel={warehouses.find((warehouse) => String(warehouse.id) === transfer.fromWarehouseId)?.name}
+              options={warehouseOptions}
+              onSelect={(id) => setTransfer((current) => ({ ...current, fromWarehouseId: id }))}
+            />
+            <SearchableSelect
+              label="To warehouse"
+              placeholder="Search warehouses"
+              selectedLabel={warehouses.find((warehouse) => String(warehouse.id) === transfer.toWarehouseId)?.name}
+              options={warehouseOptions}
+              onSelect={(id) => setTransfer((current) => ({ ...current, toWarehouseId: id }))}
+            />
             <View style={styles.quickPickWrap}>
               {data.products.slice(0, 6).map((product) => (
                 <Pressable
@@ -510,6 +633,9 @@ export function InventoryScreen() {
             ].map(([label, key]) => (
               <TextInput key={key} value={transfer[key as keyof typeof transfer]} onChangeText={(value) => setTransfer((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             ))}
+            <Text style={styles.helperText}>
+              From {warehouseMap.get(Number(transfer.fromWarehouseId))?.name || "not selected"} to {warehouseMap.get(Number(transfer.toWarehouseId))?.name || "not selected"}
+            </Text>
             <ActionButton label="Create transfer" icon="swap-horizontal" onPress={handleTransfer} />
             {operationMsg ? <Text style={styles.helperText}>{operationMsg}</Text> : null}
           </GlassCard>
@@ -531,7 +657,7 @@ export function InventoryScreen() {
             {movements.map((movement) => (
               <GlassCard key={movement.id} style={styles.productCard}>
                 <Text style={styles.productName}>{movement.referenceNumber || movement.movementType || "Movement"}</Text>
-                <Text style={styles.productMeta}>{movement.direction || "NA"} • Warehouse {movement.warehouseId}</Text>
+                <Text style={styles.productMeta}>{productMap.get(movement.productId)?.name || `Product ${movement.productId}`} • {movement.direction || "NA"} • {warehouseMap.get(movement.warehouseId)?.name || `Warehouse ${movement.warehouseId}`}</Text>
                 <Text style={styles.detailLine}>Qty {movement.baseQuantity ?? 0} • Cost {formatCurrency(movement.totalCost ?? 0)} • {movement.movementAt || "-"}</Text>
               </GlassCard>
             ))}
