@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { ActionButton, ActionSheet, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { StoreProduct } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -88,6 +88,20 @@ type WarehouseRecord = {
   isActive?: boolean;
 };
 
+type CategoryOption = { id: number; name?: string; parentCategoryId?: number; isActive?: boolean };
+type BrandOption = { id: number; name?: string; isActive?: boolean };
+type UomOption = { id: number; code?: string; name?: string; isActive?: boolean };
+type TaxGroupOption = {
+  id: number;
+  code?: string;
+  name?: string;
+  cgstRate?: number;
+  sgstRate?: number;
+  igstRate?: number;
+  cessRate?: number;
+  isActive?: boolean;
+};
+
 const blankForm = {
   productId: "",
   categoryId: "",
@@ -116,12 +130,17 @@ export function InventoryScreen({
   const [saving, setSaving] = useState(false);
   const [scanQuery, setScanQuery] = useState("");
   const [scanResult, setScanResult] = useState<ProductScanResponse | null>(null);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
   const [serials, setSerials] = useState<SerialNumber[]>([]);
   const [batches, setBatches] = useState<InventoryBatch[]>([]);
   const [reservations, setReservations] = useState<InventoryReservation[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([]);
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [brands, setBrands] = useState<BrandOption[]>([]);
+  const [uoms, setUoms] = useState<UomOption[]>([]);
+  const [taxGroups, setTaxGroups] = useState<TaxGroupOption[]>([]);
   const [operationMsg, setOperationMsg] = useState("");
   const [adjustment, setAdjustment] = useState({ productId: "", uomId: "", quantityDelta: "", baseQuantityDelta: "", unitCost: "", reason: "" });
   const [transfer, setTransfer] = useState({ fromWarehouseId: String(session?.warehouseId ?? ""), toWarehouseId: "", productId: "", uomId: "", quantity: "1", baseQuantity: "1" });
@@ -130,10 +149,15 @@ export function InventoryScreen({
   const selectedProduct = data.products.find((item) => item.id === selectedProductId) ?? null;
   const productMap = useMemo(() => new Map(data.products.map((product) => [product.id, product])), [data.products]);
   const warehouseMap = useMemo(() => new Map(warehouses.map((warehouse) => [warehouse.id, warehouse])), [warehouses]);
+  const catalogMap = useMemo(() => new Map(data.productCatalog.map((product) => [product.id, product])), [data.productCatalog]);
+  const uomNameById = useMemo(
+    () => new Map(uoms.map((uom) => [uom.id, uom.name || uom.code || `Unit ${uom.id}`])),
+    [uoms],
+  );
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: `${product.sku}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}`,
+    meta: `${product.sku}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}${product.baseUomId ? ` • ${uomNameById.get(product.baseUomId) || `Unit ${product.baseUomId}`}` : ""}`,
   }));
   const catalogOptions = data.productCatalog.map((product) => ({
     id: String(product.id),
@@ -145,10 +169,42 @@ export function InventoryScreen({
     label: warehouse.name || warehouse.code || `Warehouse ${warehouse.id}`,
     meta: `${warehouse.code || ""}${warehouse.isPrimary ? " • Primary" : ""}`,
   }));
+  const quickActions = [
+    {
+      id: "new-product",
+      label: "New product",
+      icon: "add-circle-outline" as const,
+      description: "Create a new inventory master item.",
+      onPress: () => navigateViewWithGuard("catalog"),
+    },
+    {
+      id: "scan-item",
+      label: "Scan item",
+      icon: "barcode-outline" as const,
+      description: "Search inventory by barcode or serial.",
+      onPress: () => navigateViewWithGuard("tracking"),
+    },
+    {
+      id: "stock-balances",
+      label: "Stock balances",
+      icon: "stats-chart-outline" as const,
+      description: "Review on-hand and available quantities.",
+      onPress: () => navigateViewWithGuard("balances"),
+    },
+    {
+      id: "stock-ops",
+      label: "Stock operations",
+      icon: "build-outline" as const,
+      description: "Enter stock adjustments or transfers.",
+      onPress: () => navigateViewWithGuard("operations"),
+    },
+  ];
   const filteredItems = useMemo(() => {
     const term = query.trim().toLowerCase();
     return data.products.filter((item) => `${item.name} ${item.sku} ${item.inventoryTrackingMode ?? ""}`.toLowerCase().includes(term));
   }, [data.products, query]);
+  const lowStockCount = data.lowStockAlerts.length;
+  const warehouseCount = warehouses.length;
   const isCatalogFormDirty =
     activeView === "catalog" &&
     Object.entries(form).some(([key, value]) => value !== blankForm[key as keyof typeof blankForm]);
@@ -233,6 +289,24 @@ export function InventoryScreen({
         query: { organizationId: session.organizationId },
       }).then(setWarehouses).catch(() => setWarehouses([]));
     }
+  }, [activeView, apiGet, session?.organizationId]);
+
+  useEffect(() => {
+    if (!session?.organizationId || activeView !== "catalog") {
+      return;
+    }
+    apiGet<CategoryOption[]>("/api/erp/catalog/categories", {
+      query: { organizationId: session.organizationId },
+    }).then(setCategories).catch(() => setCategories([]));
+    apiGet<BrandOption[]>("/api/erp/catalog/brands", {
+      query: { organizationId: session.organizationId },
+    }).then(setBrands).catch(() => setBrands([]));
+    apiGet<TaxGroupOption[]>("/api/erp/catalog/tax-groups", {
+      query: { organizationId: session.organizationId },
+    }).then(setTaxGroups).catch(() => setTaxGroups([]));
+    apiGet<UomOption[]>("/api/erp/catalog/uoms")
+      .then(setUoms)
+      .catch(() => setUoms([]));
   }, [activeView, apiGet, session?.organizationId]);
 
   useEffect(() => {
@@ -348,6 +422,18 @@ export function InventoryScreen({
         <Text style={styles.subheading}>Catalog, scan, tracking, balances, reservations, stock movements, and manual inventory operations are now part of the mobile app.</Text>
       </View>
 
+      <View style={styles.sheetTriggerRow}>
+        <ActionButton label="Quick actions" icon="flash-outline" inverted onPress={() => setShowQuickActions(true)} />
+      </View>
+      <ActionSheet label="Inventory quick actions" visible={showQuickActions} onClose={() => setShowQuickActions(false)} actions={quickActions} />
+
+      <View style={styles.actionRow}>
+        <ActionButton label="New product" icon="cube" inverted onPress={() => navigateViewWithGuard("catalog")} />
+        <ActionButton label="Scan SKU" icon="scan" inverted onPress={() => navigateViewWithGuard("tracking")} />
+        <ActionButton label="Balances" icon="analytics-outline" inverted onPress={() => navigateViewWithGuard("balances")} />
+        <ActionButton label="Adjust stock" icon="build" inverted onPress={() => navigateViewWithGuard("operations")} />
+      </View>
+
       {selectedProductId || scanResult || viewHistory.length > 1 ? <BackButton label={selectedProductId || scanResult ? "Back" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
@@ -374,7 +460,7 @@ export function InventoryScreen({
                   <View style={styles.rowBetween}>
                     <View style={styles.flex}>
                       <Text style={styles.productName}>{product.name}</Text>
-                      <Text style={styles.productMeta}>{product.sku} • Product #{product.productId ?? product.id} • UOM {product.baseUomId ?? "-"}</Text>
+                      <Text style={styles.productMeta}>{product.sku} • Unit {product.baseUomId ?? "-"} • {product.inventoryTrackingMode || "NONE"}</Text>
                     </View>
                     <Pill label={product.inventoryTrackingMode || "NONE"} tone="blue" />
                   </View>
@@ -386,8 +472,19 @@ export function InventoryScreen({
               </Pressable>
             ))}
           </View>
-          {selectedProduct ? <ProductDetailCard product={selectedProduct} /> : null}
-          <SectionHeader title="Create store product" action={`Org ${session?.organizationId ?? "-"}`} />
+          {selectedProduct ? (
+            <ProductDetailCard
+              product={selectedProduct}
+              catalogName={selectedProduct.productId ? catalogMap.get(selectedProduct.productId)?.name : undefined}
+              catalogCategory={selectedProduct.productId ? catalogMap.get(selectedProduct.productId)?.categoryName : undefined}
+              catalogBrand={selectedProduct.productId ? catalogMap.get(selectedProduct.productId)?.brandName : undefined}
+              categoryName={selectedProduct.categoryId ? categories.find((category) => category.id === selectedProduct.categoryId)?.name : undefined}
+              brandName={selectedProduct.brandId ? brands.find((brand) => brand.id === selectedProduct.brandId)?.name : undefined}
+              taxGroupName={selectedProduct.taxGroupId ? taxGroups.find((taxGroup) => taxGroup.id === selectedProduct.taxGroupId)?.name : undefined}
+              uomName={selectedProduct.baseUomId ? uomNameById.get(selectedProduct.baseUomId) : undefined}
+            />
+          ) : null}
+          <SectionHeader title="Create store product" action="Business setup" />
           <GlassCard style={styles.formCard}>
             <SearchableSelect
               label="Find shared catalog product"
@@ -435,11 +532,6 @@ export function InventoryScreen({
               })}
             </View>
             {[
-              ["Linked product id", "productId", "numeric"],
-              ["Category id", "categoryId", "numeric"],
-              ["Brand id", "brandId", "numeric"],
-              ["Base UOM id", "baseUomId", "numeric"],
-              ["Tax group id", "taxGroupId", "numeric"],
               ["SKU", "sku", "default"],
               ["Product name", "name", "default"],
               ["Description", "description", "default"],
@@ -449,6 +541,49 @@ export function InventoryScreen({
             ].map(([label, key, keyboardType]) => (
               <TextInput key={key} value={form[key as keyof typeof form]} onChangeText={(value) => setForm((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType={keyboardType === "numeric" ? "numeric" : "default"} />
             ))}
+            <SearchableSelect
+              label="Find category"
+              placeholder="Search categories"
+              selectedLabel={categories.find((category) => String(category.id) === form.categoryId)?.name}
+              options={categories.map((category) => ({
+                id: String(category.id),
+                label: category.name || `Category ${category.id}`,
+                meta: category.parentCategoryId ? `Parent #${category.parentCategoryId}` : undefined,
+              }))}
+              onSelect={(id) => setForm((current) => ({ ...current, categoryId: id }))}
+            />
+            <SearchableSelect
+              label="Find brand"
+              placeholder="Search brands"
+              selectedLabel={brands.find((brand) => String(brand.id) === form.brandId)?.name}
+              options={brands.map((brand) => ({
+                id: String(brand.id),
+                label: brand.name || `Brand ${brand.id}`,
+              }))}
+              onSelect={(id) => setForm((current) => ({ ...current, brandId: id }))}
+            />
+            <SearchableSelect
+              label="Find tax group"
+              placeholder="Search tax groups"
+              selectedLabel={taxGroups.find((group) => String(group.id) === form.taxGroupId)?.name}
+              options={taxGroups.map((group) => ({
+                id: String(group.id),
+                label: group.name || group.code || `Tax group ${group.id}`,
+                meta: group.code ? `Code ${group.code}` : undefined,
+              }))}
+              onSelect={(id) => setForm((current) => ({ ...current, taxGroupId: id }))}
+            />
+            <SearchableSelect
+              label="Find base unit"
+              placeholder="Search units"
+              selectedLabel={form.baseUomId ? uomNameById.get(Number(form.baseUomId)) : undefined}
+              options={uoms.map((uom) => ({
+                id: String(uom.id),
+                label: uom.name || uom.code || `Unit ${uom.id}`,
+                meta: uom.code ? `Code ${uom.code}` : undefined,
+              }))}
+              onSelect={(id) => setForm((current) => ({ ...current, baseUomId: id }))}
+            />
             <ActionButton label={saving ? "Saving..." : "Create product"} icon="cube" onPress={saving ? undefined : handleSave} />
           </GlassCard>
         </>
@@ -464,7 +599,6 @@ export function InventoryScreen({
             options={productOptions}
             onSelect={(id) => setSelectedProductId(Number(id))}
           />
-          <TextInput value={selectedProductId ? String(selectedProductId) : ""} onChangeText={(value) => setSelectedProductId(value ? Number(value) : null)} placeholder="Store product id for tracking lookups" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
           <GlassCard style={styles.formCard}>
             <TextInput value={scanQuery} onChangeText={setScanQuery} placeholder="Scan query, SKU, batch, or serial" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <ActionButton label="Resolve scan" icon="scan" onPress={handleScan} />
@@ -478,7 +612,7 @@ export function InventoryScreen({
               </>
             ) : null}
           </GlassCard>
-          <SectionHeader title="Serial numbers" action={`${serials.length} records`} />
+          <SectionHeader title="Serial numbers" action={`${serials.length} items`} />
           <View style={styles.cardStack}>
             {serials.map((serial) => (
               <GlassCard key={serial.id} style={styles.productCard}>
@@ -487,7 +621,7 @@ export function InventoryScreen({
               </GlassCard>
             ))}
           </View>
-          <SectionHeader title="Batches" action={`${batches.length} records`} />
+          <SectionHeader title="Batches" action={`${batches.length} items`} />
           <View style={styles.cardStack}>
             {batches.map((batch) => (
               <GlassCard key={batch.id} style={styles.productCard}>
@@ -514,7 +648,7 @@ export function InventoryScreen({
               .filter((balance) => (selectedProductId ? balance.productId === selectedProductId : true))
               .map((balance) => (
               <GlassCard key={balance.id} style={styles.productCard}>
-                <Text style={styles.productName}>{productMap.get(balance.productId)?.name || `Product ${balance.productId}`}</Text>
+                <Text style={styles.productName}>{productMap.get(balance.productId)?.name || "Unknown product"}</Text>
                 <Text style={styles.productMeta}>On hand {balance.onHandBaseQuantity ?? 0} • Reserved {balance.reservedBaseQuantity ?? 0}</Text>
                 <Text style={styles.detailLine}>Available {balance.availableBaseQuantity ?? 0} • Avg cost {formatCurrency(balance.avgCost ?? 0)}</Text>
               </GlassCard>
@@ -525,7 +659,7 @@ export function InventoryScreen({
             {reservations.map((reservation) => (
               <GlassCard key={reservation.id} style={styles.productCard}>
                 <Text style={styles.productName}>{reservation.sourceDocumentType || "Reservation"} #{reservation.sourceDocumentId ?? reservation.id}</Text>
-                <Text style={styles.productMeta}>{productMap.get(reservation.productId)?.name || `Product ${reservation.productId}`} • Qty {reservation.reservedBaseQuantity ?? 0}</Text>
+                <Text style={styles.productMeta}>{productMap.get(reservation.productId)?.name || "Unknown product"} • Qty {reservation.reservedBaseQuantity ?? 0}</Text>
                 <Text style={styles.detailLine}>{reservation.status || "ACTIVE"} • Expires {reservation.expiresAt || "-"}</Text>
               </GlassCard>
             ))}
@@ -567,8 +701,6 @@ export function InventoryScreen({
               ))}
             </View>
             {[
-              ["Product id", "productId"],
-              ["UOM id", "uomId"],
               ["Quantity delta", "quantityDelta"],
               ["Base quantity delta", "baseQuantityDelta"],
               ["Unit cost", "unitCost"],
@@ -576,6 +708,9 @@ export function InventoryScreen({
             ].map(([label, key]) => (
               <TextInput key={key} value={adjustment[key as keyof typeof adjustment]} onChangeText={(value) => setAdjustment((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             ))}
+            <Text style={styles.helperText}>
+              Product {productMap.get(Number(adjustment.productId))?.name || "not selected"} • Unit {adjustment.uomId ? `Unit ${adjustment.uomId}` : "not selected"}
+            </Text>
             <ActionButton label="Post adjustment" icon="build" onPress={handleAdjustment} />
           </GlassCard>
           <SectionHeader title="Stock transfer" action="Between warehouses" />
@@ -624,10 +759,6 @@ export function InventoryScreen({
               ))}
             </View>
             {[
-              ["From warehouse", "fromWarehouseId"],
-              ["To warehouse", "toWarehouseId"],
-              ["Product id", "productId"],
-              ["UOM id", "uomId"],
               ["Quantity", "quantity"],
               ["Base quantity", "baseQuantity"],
             ].map(([label, key]) => (
@@ -652,12 +783,11 @@ export function InventoryScreen({
             options={productOptions}
             onSelect={(id) => setSelectedProductId(Number(id))}
           />
-          <TextInput value={selectedProductId ? String(selectedProductId) : ""} onChangeText={(value) => setSelectedProductId(value ? Number(value) : null)} placeholder="Store product id for movement history" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
           <View style={styles.cardStack}>
             {movements.map((movement) => (
               <GlassCard key={movement.id} style={styles.productCard}>
                 <Text style={styles.productName}>{movement.referenceNumber || movement.movementType || "Movement"}</Text>
-                <Text style={styles.productMeta}>{productMap.get(movement.productId)?.name || `Product ${movement.productId}`} • {movement.direction || "NA"} • {warehouseMap.get(movement.warehouseId)?.name || `Warehouse ${movement.warehouseId}`}</Text>
+                <Text style={styles.productMeta}>{productMap.get(movement.productId)?.name || "Unknown product"} • {movement.direction || "NA"} • {warehouseMap.get(movement.warehouseId)?.name || `Warehouse ${movement.warehouseId}`}</Text>
                 <Text style={styles.detailLine}>Qty {movement.baseQuantity ?? 0} • Cost {formatCurrency(movement.totalCost ?? 0)} • {movement.movementAt || "-"}</Text>
               </GlassCard>
             ))}
@@ -669,17 +799,35 @@ export function InventoryScreen({
   );
 }
 
-function ProductDetailCard({ product }: { product: StoreProduct }) {
+function ProductDetailCard({
+  product,
+  catalogName,
+  catalogCategory,
+  catalogBrand,
+  categoryName,
+  brandName,
+  taxGroupName,
+  uomName,
+}: {
+  product: StoreProduct;
+  catalogName?: string;
+  catalogCategory?: string | null;
+  catalogBrand?: string | null;
+  categoryName?: string;
+  brandName?: string;
+  taxGroupName?: string;
+  uomName?: string;
+}) {
   return (
     <GlassCard style={styles.detailCard}>
       <Text style={styles.formTitle}>{product.name}</Text>
       <Text style={styles.detailLine}>SKU: {product.sku}</Text>
       <Text style={styles.detailLine}>Tracking mode: {product.inventoryTrackingMode || "NONE"}</Text>
-      <Text style={styles.detailLine}>Linked master product: {product.productId ?? "Not linked"}</Text>
-      <Text style={styles.detailLine}>Category id: {product.categoryId ?? "-"}</Text>
-      <Text style={styles.detailLine}>Brand id: {product.brandId ?? "-"}</Text>
-      <Text style={styles.detailLine}>Tax group id: {product.taxGroupId ?? "-"}</Text>
-      <Text style={styles.detailLine}>UOM id: {product.baseUomId ?? "-"}</Text>
+      <Text style={styles.detailLine}>Linked product: {catalogName || "Not linked"}</Text>
+      <Text style={styles.detailLine}>Category: {catalogCategory || categoryName || (product.categoryId ? `Category ${product.categoryId}` : "-")}</Text>
+      <Text style={styles.detailLine}>Brand: {catalogBrand || brandName || (product.brandId ? `Brand ${product.brandId}` : "-")}</Text>
+      <Text style={styles.detailLine}>Tax group: {taxGroupName || (product.taxGroupId ? `Tax group ${product.taxGroupId}` : "-")}</Text>
+      <Text style={styles.detailLine}>Base unit: {uomName || (product.baseUomId ? `Unit ${product.baseUomId}` : "-")}</Text>
       <Text style={styles.detailLine}>Default sale price: {formatCurrency(product.defaultSalePrice ?? 0)}</Text>
       <Text style={styles.detailLine}>Minimum stock qty: {product.minStockBaseQty ?? 0}</Text>
       <Text style={styles.detailLine}>Reorder level qty: {product.reorderLevelBaseQty ?? 0}</Text>
@@ -692,9 +840,12 @@ const styles = StyleSheet.create({
   wrap: { gap: 20 },
   heading: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: "800" },
   subheading: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600", marginTop: 6 },
+  sheetTriggerRow: { marginBottom: theme.spacing.sm },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   segment: { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
   segmentActive: { backgroundColor: theme.colors.accent },
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
   segmentText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "700" },
   segmentTextActive: { color: "#FFFFFF" },
   input: { minHeight: 54, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 16, color: theme.colors.textPrimary, fontSize: 14, fontWeight: "600", backgroundColor: theme.colors.surfaceMuted },

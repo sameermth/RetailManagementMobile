@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, BackButton, GlassCard, Pill, SectionHeader } from "../../components/Ui";
+import { ActionButton, ActionSheet, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { Customer, StoreCustomerTerms, StoreSupplierTerms, Supplier, SupplierCatalog } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
@@ -32,6 +32,59 @@ const blankPartyForm = {
   status: "ACTIVE",
 };
 
+const PARTY_TYPE_OPTIONS = [
+  { id: "RETAIL", label: "Retail" },
+  { id: "WHOLESALE", label: "Wholesale" },
+  { id: "DISTRIBUTOR", label: "Distributor" },
+  { id: "CORPORATE", label: "Corporate" },
+  { id: "BUSINESS", label: "Business" },
+];
+
+const PARTY_STATUS_OPTIONS = [
+  { id: "ACTIVE", label: "Active" },
+  { id: "INACTIVE", label: "Inactive" },
+  { id: "BLOCKED", label: "Blocked" },
+];
+
+const STATE_CODE_OPTIONS = [
+  ["01", "Jammu and Kashmir"],
+  ["02", "Himachal Pradesh"],
+  ["03", "Punjab"],
+  ["04", "Chandigarh"],
+  ["05", "Uttarakhand"],
+  ["06", "Haryana"],
+  ["07", "Delhi"],
+  ["08", "Rajasthan"],
+  ["09", "Uttar Pradesh"],
+  ["10", "Bihar"],
+  ["11", "Sikkim"],
+  ["12", "Arunachal Pradesh"],
+  ["13", "Nagaland"],
+  ["14", "Manipur"],
+  ["15", "Mizoram"],
+  ["16", "Tripura"],
+  ["17", "Meghalaya"],
+  ["18", "Assam"],
+  ["19", "West Bengal"],
+  ["20", "Jharkhand"],
+  ["21", "Odisha"],
+  ["22", "Chhattisgarh"],
+  ["23", "Madhya Pradesh"],
+  ["24", "Gujarat"],
+  ["26", "Dadra and Nagar Haveli and Daman and Diu"],
+  ["27", "Maharashtra"],
+  ["29", "Karnataka"],
+  ["30", "Goa"],
+  ["31", "Lakshadweep"],
+  ["32", "Kerala"],
+  ["33", "Tamil Nadu"],
+  ["34", "Puducherry"],
+  ["35", "Andaman and Nicobar Islands"],
+  ["36", "Telangana"],
+  ["37", "Andhra Pradesh"],
+  ["38", "Ladakh"],
+].map(([id, name]) => ({ id, label: `${id} - ${name}` }));
+
 export function CustomersScreen({
   onDirtyChange,
 }: {
@@ -55,6 +108,7 @@ export function CustomersScreen({
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState(blankPartyForm);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [customerTerms, setCustomerTerms] = useState<StoreCustomerTerms | null>(null);
   const [supplierTerms, setSupplierTerms] = useState<StoreSupplierTerms | null>(null);
   const [supplierCatalog, setSupplierCatalog] = useState<SupplierCatalog | null>(null);
@@ -128,6 +182,44 @@ export function CustomersScreen({
   const selectedParty = useMemo(() => {
     return activeView === "suppliers" ? selectedSupplier : selectedCustomer;
   }, [activeView, selectedCustomer, selectedSupplier]);
+  const customerCount = data.customers.length;
+  const supplierCount = data.suppliers.length;
+  const quickActions = [
+    {
+      id: "new-customer",
+      label: "New customer",
+      icon: "person-add-outline" as const,
+      description: "Create a new customer profile.",
+      onPress: () => {
+        setPartyMode("customer");
+        navigateViewWithGuard("new");
+      },
+    },
+    {
+      id: "new-supplier",
+      label: "New supplier",
+      icon: "person-add-outline" as const,
+      description: "Create a new supplier record.",
+      onPress: () => {
+        setPartyMode("supplier");
+        navigateViewWithGuard("new");
+      },
+    },
+    {
+      id: "view-customers",
+      label: "View customers",
+      icon: "people-outline" as const,
+      description: "Open customer master records.",
+      onPress: () => navigateViewWithGuard("customers"),
+    },
+    {
+      id: "view-suppliers",
+      label: "View suppliers",
+      icon: "business-outline" as const,
+      description: "Open supplier master records.",
+      onPress: () => navigateViewWithGuard("suppliers"),
+    },
+  ];
   const isFormDirty =
     activeView === "new" &&
     Object.entries(form).some(([key, value]) => {
@@ -136,6 +228,10 @@ export function CustomersScreen({
     });
 
   function navigateView(view: PartyView) {
+    setSelectedId(null);
+    setCustomerTerms(null);
+    setSupplierTerms(null);
+    setSupplierCatalog(null);
     setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
   }
 
@@ -303,6 +399,28 @@ export function CustomersScreen({
         <Text style={styles.subheading}>Customers and suppliers now follow the dedicated phase 1 party contracts, including terms and supplier catalogs.</Text>
       </View>
 
+      <View style={styles.sheetTriggerRow}>
+        <ActionButton label="Quick actions" icon="flash-outline" inverted onPress={() => setShowQuickActions(true)} />
+      </View>
+
+      <ActionSheet label="Party quick actions" visible={showQuickActions} onClose={() => setShowQuickActions(false)} actions={quickActions} />
+
+      <View style={styles.summaryRow}>
+        <Pill label={`${customerCount} customers`} tone="blue" />
+        <Pill label={`${supplierCount} suppliers`} tone="green" />
+      </View>
+
+      <View style={styles.actionRow}>
+        <ActionButton label="New customer" icon="person-add" inverted onPress={() => { setPartyMode("customer"); navigateViewWithGuard("new"); }} />
+        <ActionButton label="New supplier" icon="person-add" inverted onPress={() => { setPartyMode("supplier"); navigateViewWithGuard("new"); }} />
+        <ActionButton
+          label={activeView === "customers" ? "View suppliers" : "View customers"}
+          icon="swap-horizontal"
+          inverted
+          onPress={() => navigateViewWithGuard(activeView === "customers" ? "suppliers" : "customers")}
+        />
+      </View>
+
       {selectedId != null || viewHistory.length > 1 ? <BackButton label={selectedId != null ? "Back to list" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
@@ -392,7 +510,6 @@ export function CustomersScreen({
           {[
             ["Code", "code", "default"],
             [partyMode === "customer" ? "Full name" : "Supplier name", "name", "default"],
-            [partyMode === "customer" ? "Customer type" : "Business type", "type", "default"],
             ["Legal name", "legalName", "default"],
             ["Trade name", "tradeName", "default"],
             ["Phone", "phone", "phone-pad"],
@@ -401,13 +518,11 @@ export function CustomersScreen({
             ["Billing address", "billingAddress", "default"],
             ["Shipping address", "shippingAddress", "default"],
             ["State", "state", "default"],
-            ["State code", "stateCode", "default"],
             ["Contact person", "contactPersonName", "default"],
             ["Contact phone", "contactPersonPhone", "phone-pad"],
             ["Contact email", "contactPersonEmail", "email-address"],
             [partyMode === "customer" ? "Credit limit" : "Payment terms", partyMode === "customer" ? "creditLimit" : "paymentTerms", partyMode === "customer" ? "numeric" : "default"],
             ["Notes", "notes", "default"],
-            ["Status", "status", "default"],
           ].map(([label, key, keyboardType]) => (
             <TextInput
               key={key}
@@ -419,6 +534,27 @@ export function CustomersScreen({
               keyboardType={keyboardType as "default"}
             />
           ))}
+          <SearchableSelect
+            label={partyMode === "customer" ? "Customer type" : "Business type"}
+            placeholder="Select party type"
+            selectedLabel={PARTY_TYPE_OPTIONS.find((option) => option.id === form.type)?.label}
+            options={PARTY_TYPE_OPTIONS}
+            onSelect={(id) => setForm((current) => ({ ...current, type: id }))}
+          />
+          <SearchableSelect
+            label="State code"
+            placeholder="Select state code"
+            selectedLabel={STATE_CODE_OPTIONS.find((option) => option.id === form.stateCode)?.label}
+            options={STATE_CODE_OPTIONS}
+            onSelect={(id) => setForm((current) => ({ ...current, stateCode: id }))}
+          />
+          <SearchableSelect
+            label="Status"
+            placeholder="Select status"
+            selectedLabel={PARTY_STATUS_OPTIONS.find((option) => option.id === form.status)?.label}
+            options={PARTY_STATUS_OPTIONS}
+            onSelect={(id) => setForm((current) => ({ ...current, status: id }))}
+          />
           <ActionButton label={saving ? "Saving..." : `Create ${partyMode}`} icon="person-add" onPress={saving ? undefined : handleSave} />
         </GlassCard>
       )}
@@ -430,9 +566,12 @@ const styles = StyleSheet.create({
   wrap: { gap: 20 },
   heading: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: "800" },
   subheading: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600", marginTop: 6 },
+  sheetTriggerRow: { marginBottom: theme.spacing.sm },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   segment: { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
   segmentActive: { backgroundColor: theme.colors.accent },
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
   segmentText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "700" },
   segmentTextActive: { color: "#FFFFFF" },
   input: { minHeight: 54, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border, paddingHorizontal: 16, color: theme.colors.textPrimary, fontSize: 14, fontWeight: "600", backgroundColor: theme.colors.surfaceMuted },

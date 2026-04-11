@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, GlassCard, GradientCard, SectionHeader } from "../../components/Ui";
+import { ActionButton, ActionSheet, GlassCard, GradientCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
 import { formatCompactCurrency, formatCurrency } from "../../utils/formatters";
@@ -90,6 +90,16 @@ export function ReportsScreen({
   const [workflowDate, setWorkflowDate] = useState(new Date().toISOString().slice(0, 10));
   const [approvalEval, setApprovalEval] = useState({ entityType: "SALES_INVOICE", entityId: "" });
   const [approvalEvalResult, setApprovalEvalResult] = useState<string>("");
+  const [showQuickActions, setShowQuickActions] = useState(false);
+
+  const quickActions = [
+    { id: "business", label: "Business summary", icon: "business-outline" as const, description: "Review revenue, collections, and receipts.", onPress: () => setActiveView("business") },
+    { id: "gst", label: "GST summary", icon: "document-text-outline" as const, description: "Open tax threshold and turnover analytics.", onPress: () => setActiveView("gst") },
+    { id: "finance", label: "Finance summary", icon: "wallet-outline" as const, description: "View cash, bank and receivables data.", onPress: () => setActiveView("finance") },
+    { id: "approvals", label: "Approval queue", icon: "checkmark-done-outline" as const, description: "See pending approvals and rule summaries.", onPress: () => setActiveView("approvals") },
+    { id: "workflow", label: "Workflow review", icon: "pulse-outline" as const, description: "Inspect workflow triggers and notification health.", onPress: () => setActiveView("workflow") },
+  ];
+  const activeReport = quickActions.find((action) => action.id === activeView);
 
   useEffect(() => {
     if (!session?.organizationId) return;
@@ -126,6 +136,51 @@ export function ReportsScreen({
       }).then(setOutstandingSummary).catch(() => setOutstandingSummary(null));
     }
   }, [activeView, apiGet, apiPost, financeDates.fromDate, financeDates.toDate, session?.organizationId, workflowDate]);
+
+  const entityTypeOptions = [
+    { id: "SALES_INVOICE", label: "Sales Invoice" },
+    { id: "PURCHASE_ORDER", label: "Purchase Order" },
+    { id: "PURCHASE_RECEIPT", label: "Purchase Receipt" },
+    { id: "SALES_QUOTE", label: "Sales Quote" },
+    { id: "SALES_ORDER", label: "Sales Order" },
+  ];
+
+  const entityIdOptions = useMemo(() => {
+    switch (approvalEval.entityType) {
+      case "SALES_INVOICE":
+        return data.invoices.map((invoice) => ({
+          id: String(invoice.id),
+          label: invoice.invoiceNumber || `Invoice ${invoice.id}`,
+          meta: `${data.customers.find((c) => c.id === invoice.customerId)?.fullName || `Customer ${invoice.customerId}`}`,
+        }));
+      case "PURCHASE_ORDER":
+        return data.purchaseOrders.map((order) => ({
+          id: String(order.id),
+          label: order.poNumber || `PO ${order.id}`,
+          meta: `${data.suppliers.find((s) => s.id === order.supplierId)?.name || `Supplier ${order.supplierId}`}`,
+        }));
+      case "PURCHASE_RECEIPT":
+        return data.purchaseReceipts.map((receipt) => ({
+          id: String(receipt.id),
+          label: receipt.receiptNumber || `Receipt ${receipt.id}`,
+          meta: `${data.suppliers.find((s) => s.id === receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`}`,
+        }));
+      case "SALES_QUOTE":
+        return data.quotes.map((quote) => ({
+          id: String(quote.id),
+          label: quote.quoteNumber || `Quote ${quote.id}`,
+          meta: `${data.customers.find((c) => c.id === quote.customerId)?.fullName || `Customer ${quote.customerId}`}`,
+        }));
+      case "SALES_ORDER":
+        return data.orders.map((order) => ({
+          id: String(order.id),
+          label: order.orderNumber || `Order ${order.id}`,
+          meta: `${data.customers.find((c) => c.id === order.customerId)?.fullName || `Customer ${order.customerId}`}`,
+        }));
+      default:
+        return [];
+    }
+  }, [approvalEval.entityType, data.invoices, data.purchaseOrders, data.purchaseReceipts, data.quotes, data.orders, data.customers, data.suppliers]);
 
   const businessHighlights = useMemo(
     () => [
@@ -198,6 +253,22 @@ export function ReportsScreen({
         <Text style={styles.heading}>{title}</Text>
         <Text style={styles.subheading}>{subtitle}</Text>
       </View>
+
+      <View style={styles.summaryRow}>
+        <Pill label={activeReport?.label ?? "Reports"} tone="blue" />
+        <Text style={styles.reportHint}>{activeReport?.description ?? "Open the report view for business, GST, finance, approvals or workflows."}</Text>
+      </View>
+
+      <View style={styles.sheetTriggerRow}>
+        <ActionButton label="Quick actions" icon="flash-outline" inverted onPress={() => setShowQuickActions(true)} />
+      </View>
+
+      <ActionSheet
+        label="Reports quick actions"
+        visible={showQuickActions}
+        onClose={() => setShowQuickActions(false)}
+        actions={quickActions}
+      />
 
       <View style={styles.segmentRow}>
         {(["business", "gst", "finance", "approvals", "workflow"] as ReportView[]).map((view) => {
@@ -292,8 +363,20 @@ export function ReportsScreen({
           </View>
           <SectionHeader title="Evaluate approval" action={`${approvalRequests.length} requests`} />
           <GlassCard style={styles.formCard}>
-            <TextInput value={approvalEval.entityType} onChangeText={(value) => setApprovalEval((current) => ({ ...current, entityType: value }))} placeholder="Entity type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={approvalEval.entityId} onChangeText={(value) => setApprovalEval((current) => ({ ...current, entityId: value }))} placeholder="Entity id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Entity type"
+              placeholder="Select entity type"
+              selectedLabel={entityTypeOptions.find((option) => option.id === approvalEval.entityType)?.label}
+              options={entityTypeOptions}
+              onSelect={(id) => setApprovalEval((current) => ({ ...current, entityType: id, entityId: "" }))}
+            />
+            <SearchableSelect
+              label="Entity"
+              placeholder="Select entity"
+              selectedLabel={entityIdOptions.find((option) => option.id === approvalEval.entityId)?.label}
+              options={entityIdOptions}
+              onSelect={(id) => setApprovalEval((current) => ({ ...current, entityId: id }))}
+            />
             <ActionButton label="Evaluate" icon="git-compare" onPress={runApprovalEvaluation} />
             {approvalEvalResult ? <Text style={styles.reportDetail}>{approvalEvalResult}</Text> : null}
           </GlassCard>
@@ -343,9 +426,12 @@ const styles = StyleSheet.create({
   wrap: { gap: 20 },
   heading: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: "800" },
   subheading: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600", marginTop: 6 },
+  sheetTriggerRow: { marginBottom: theme.spacing.sm },
   segmentRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   segment: { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
   segmentActive: { backgroundColor: theme.colors.accent },
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
+  reportHint: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600", flex: 1, lineHeight: 18 },
   segmentText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "700" },
   segmentTextActive: { color: "#FFFFFF" },
   banner: { gap: 10 },

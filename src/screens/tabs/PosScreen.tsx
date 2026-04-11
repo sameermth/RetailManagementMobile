@@ -1,14 +1,39 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { ActionButton, ActionSheet, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { SalesInvoice, SalesOrder, SalesQuote } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
 import { formatCurrency } from "../../utils/formatters";
 
-type SalesView = "quotes" | "orders" | "invoices" | "receipts" | "new";
+type SalesView = "quotes" | "orders" | "invoices" | "receipts" | "returns" | "recurring" | "new";
 type DraftType = "quote" | "order" | "invoice" | "receipt";
+
+type SalesReturnSummary = {
+  id: number;
+  returnNumber?: string;
+  returnDate?: string;
+  customerId?: number;
+  totalAmount?: number;
+  status?: string;
+};
+
+type RecurringSalesInvoiceSummary = {
+  id: number;
+  templateNumber?: string;
+  customerId?: number;
+  frequency?: string;
+  nextRunDate?: string;
+  isActive?: boolean;
+};
+
+type UomOption = {
+  id: number;
+  code?: string;
+  name?: string;
+  isActive?: boolean;
+};
 
 type DraftLine = {
   productId: string;
@@ -30,12 +55,26 @@ const emptyLine: DraftLine = {
   discountAmount: "",
 };
 
+const QUOTE_TYPE_OPTIONS = [
+  { id: "ESTIMATE", label: "Estimate" },
+  { id: "QUOTATION", label: "Quotation" },
+];
+
+const PAYMENT_METHOD_OPTIONS = [
+  { id: "CASH", label: "Cash" },
+  { id: "CARD", label: "Card" },
+  { id: "UPI", label: "UPI" },
+  { id: "BANK_TRANSFER", label: "Bank Transfer" },
+  { id: "CHEQUE", label: "Cheque" },
+];
+
 export function PosScreen({
   onDirtyChange,
 }: {
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const {
+    apiGet,
     convertOrderToInvoice,
     convertQuoteToInvoice,
     convertQuoteToOrder,
@@ -56,6 +95,7 @@ export function PosScreen({
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<SalesQuote | SalesOrder | SalesInvoice | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [customerId, setCustomerId] = useState("");
   const [quoteType, setQuoteType] = useState("ESTIMATE");
   const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -67,6 +107,9 @@ export function PosScreen({
   const [receiptAmount, setReceiptAmount] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ ...emptyLine }]);
+  const [salesReturns, setSalesReturns] = useState<SalesReturnSummary[]>([]);
+  const [recurringInvoices, setRecurringInvoices] = useState<RecurringSalesInvoiceSummary[]>([]);
+  const [uoms, setUoms] = useState<UomOption[]>([]);
   const activeView = viewHistory[viewHistory.length - 1] ?? "quotes";
 
   const customerMap = useMemo(() => new Map(data.customers.map((entry) => [entry.id, entry.fullName])), [data.customers]);
@@ -84,9 +127,44 @@ export function PosScreen({
   const receipts = data.receipts.filter((entry) =>
     `${entry.receiptNumber} ${customerMap.get(entry.customerId) ?? ""} ${entry.status ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const filteredReturns = salesReturns.filter((entry) =>
+    `${entry.returnNumber ?? ""} ${entry.status ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const filteredRecurring = recurringInvoices.filter((entry) =>
+    `${entry.templateNumber ?? ""} ${entry.frequency ?? ""} ${entry.nextRunDate ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
+  );
   const quoteDetail = detail && "quoteType" in detail ? detail : null;
+  const currentDocumentCount =
+    activeView === "quotes"
+      ? quotes.length
+      : activeView === "orders"
+      ? orders.length
+      : activeView === "invoices"
+      ? invoices.length
+      : activeView === "receipts"
+      ? receipts.length
+      : activeView === "returns"
+      ? filteredReturns.length
+      : activeView === "recurring"
+      ? filteredRecurring.length
+      : 0;
+
+  const quickActions = [
+    { id: "quotes", label: "View quotes", icon: "document-text-outline" as const, onPress: () => navigateViewWithGuard("quotes") },
+    { id: "orders", label: "View orders", icon: "document-outline" as const, onPress: () => navigateViewWithGuard("orders") },
+    { id: "invoices", label: "View invoices", icon: "receipt-outline" as const, onPress: () => navigateViewWithGuard("invoices") },
+    { id: "receipts", label: "View receipts", icon: "cash-outline" as const, onPress: () => navigateViewWithGuard("receipts") },
+    { id: "returns", label: "Sales returns", icon: "return-up-back-outline" as const, onPress: () => navigateViewWithGuard("returns") },
+    { id: "recurring", label: "Recurring invoices", icon: "repeat-outline" as const, onPress: () => navigateViewWithGuard("recurring") },
+    { id: "new-quote", label: "Create quote", icon: "add-circle-outline" as const, onPress: () => { setDraftType("quote"); navigateViewWithGuard("new"); } },
+    { id: "new-order", label: "Create order", icon: "add-circle-outline" as const, onPress: () => { setDraftType("order"); navigateViewWithGuard("new"); } },
+    { id: "new-invoice", label: "Create invoice", icon: "add-circle-outline" as const, onPress: () => { setDraftType("invoice"); navigateViewWithGuard("new"); } },
+    { id: "new-receipt", label: "Create receipt", icon: "add-circle-outline" as const, onPress: () => { setDraftType("receipt"); navigateViewWithGuard("new"); } },
+  ];
 
   function navigateView(view: SalesView) {
+    setSelectedId(null);
+    setDetail(null);
     setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
   }
 
@@ -216,11 +294,24 @@ export function PosScreen({
     label: customer.fullName,
     meta: `${customer.customerCode}${customer.phone ? ` • ${customer.phone}` : ""}${customer.state ? ` • ${customer.state}` : ""}`,
   }));
+  const uomNameById = new Map(uoms.map((uom) => [uom.id, uom.name || uom.code || `Unit ${uom.id}`]));
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: `${product.sku}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
+    meta: `${product.sku}${product.baseUomId ? ` • ${uomNameById.get(product.baseUomId) || `Unit ${product.baseUomId}`}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
   }));
+  const uomOptions = uoms.length
+    ? uoms.map((uom) => ({
+        id: String(uom.id),
+        label: uom.name || uom.code || `Unit ${uom.id}`,
+        meta: uom.code ? `Code ${uom.code}` : undefined,
+      }))
+    : Array.from(
+        new Set(data.products.map((product) => product.baseUomId).filter((id): id is number => id != null)),
+      ).map((id) => ({
+        id: String(id),
+        label: `Unit ${id}`,
+      }));
   const isDraftDirty =
     activeView === "new" &&
     (
@@ -275,21 +366,61 @@ export function PosScreen({
     return () => onDirtyChange?.(false);
   }, [isDraftDirty, onDirtyChange]);
 
+  useEffect(() => {
+    apiGet<UomOption[]>("/api/erp/catalog/uoms")
+      .then(setUoms)
+      .catch(() => setUoms([]));
+  }, [apiGet]);
+
+  useEffect(() => {
+    if (!session?.organizationId) {
+      return;
+    }
+    if (activeView === "returns") {
+      apiGet<SalesReturnSummary[]>("/api/erp/returns/sales", {
+        query: { organizationId: session.organizationId },
+      }).then(setSalesReturns).catch(() => setSalesReturns([]));
+    }
+    if (activeView === "recurring") {
+      apiGet<RecurringSalesInvoiceSummary[]>("/api/erp/sales/recurring-invoices", {
+        query: { organizationId: session.organizationId },
+      }).then(setRecurringInvoices).catch(() => setRecurringInvoices([]));
+    }
+  }, [activeView, apiGet, session?.organizationId]);
+
   return (
     <View style={styles.wrap}>
       <View>
         <Text style={styles.heading}>Sales Workspace</Text>
-        <Text style={styles.subheading}>Quotes, orders, invoices, receipts, and conversion flows now align with the ERP sales APIs and line-item payloads.</Text>
+        <Text style={styles.subheading}>Quotes, orders, invoices, receipts, sales returns, recurring invoices, and conversion flows align with the web and backend sales flows.</Text>
       </View>
+
+      <View style={styles.sheetTriggerRow}>
+        <ActionButton label="Quick actions" icon="flash-outline" inverted onPress={() => setShowQuickActions(true)} />
+      </View>
+
+      <View style={styles.summaryRow}>
+        <Pill label={activeView === "new" ? "Draft builder" : `${currentDocumentCount} documents`} tone="blue" />
+        <Pill label={`${activeView[0].toUpperCase() + activeView.slice(1)} view`} tone="green" />
+      </View>
+
+      <ActionSheet
+        label="Sales quick actions"
+        visible={showQuickActions}
+        onClose={() => setShowQuickActions(false)}
+        actions={quickActions}
+      />
 
       {detail || selectedId || viewHistory.length > 1 ? <BackButton label={detail ? "Back to list" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
-        {(["quotes", "orders", "invoices", "receipts", "new"] as const).map((view) => {
+        {(["quotes", "orders", "invoices", "receipts", "returns", "recurring", "new"] as const).map((view) => {
           const active = activeView === view;
           return (
             <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
-              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{view === "new" ? "New Doc" : view[0].toUpperCase() + view.slice(1)}</Text>
+              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>
+                {view === "new" ? "New Doc" : view === "recurring" ? "Recurring" : view[0].toUpperCase() + view.slice(1)}
+              </Text>
             </Pressable>
           );
         })}
@@ -310,7 +441,6 @@ export function PosScreen({
               );
             })}
           </View>
-          <TextInput value={customerId} onChangeText={setCustomerId} placeholder="Customer id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
           <SearchableSelect
             label="Find customer"
             placeholder="Search customers"
@@ -328,9 +458,15 @@ export function PosScreen({
               );
             })}
           </View>
-          <Text style={styles.helperText}>Selected customer: {selectedCustomerName || "Pick a valid phase 1 customer id"}</Text>
+          <Text style={styles.helperText}>Selected customer: {selectedCustomerName || "Pick a valid customer"}</Text>
           {draftType === "quote" ? (
-            <TextInput value={quoteType} onChangeText={setQuoteType} placeholder="Quote type (ESTIMATE or QUOTATION)" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Quote type"
+              placeholder="Select quote type"
+              selectedLabel={QUOTE_TYPE_OPTIONS.find((option) => option.id === quoteType)?.label}
+              options={QUOTE_TYPE_OPTIONS}
+              onSelect={setQuoteType}
+            />
           ) : null}
           <TextInput value={documentDate} onChangeText={setDocumentDate} placeholder="Document date (YYYY-MM-DD)" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
           {draftType === "quote" ? (
@@ -344,17 +480,22 @@ export function PosScreen({
 
           {draftType === "receipt" ? (
             <>
-              <TextInput value={receiptMethod} onChangeText={setReceiptMethod} placeholder="Payment method" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+              <SearchableSelect
+                label="Payment method"
+                placeholder="Select payment method"
+                selectedLabel={PAYMENT_METHOD_OPTIONS.find((option) => option.id === receiptMethod)?.label}
+                options={PAYMENT_METHOD_OPTIONS}
+                onSelect={setReceiptMethod}
+              />
               <TextInput value={receiptAmount} onChangeText={setReceiptAmount} placeholder="Amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
               <TextInput value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Reference number" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             </>
           ) : (
             <>
-              <SectionHeader title="Document lines" action={`Warehouse ${session?.warehouseId ?? "unset"}`} />
+              <SectionHeader title="Document lines" action={`Selected warehouse ${session?.warehouseId ?? "not set"}`} />
               {lines.map((line, index) => (
                 <GlassCard key={`line-${index}`} style={styles.lineCard}>
                   <Text style={styles.lineTitle}>Line {index + 1}</Text>
-                  <TextInput value={line.productId} onChangeText={(value) => updateLine(index, "productId", value, setLines)} placeholder="Store product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
                   <SearchableSelect
                     label={`Find product for line ${index + 1}`}
                     placeholder="Search products"
@@ -393,7 +534,13 @@ export function PosScreen({
                       );
                     })}
                   </View>
-                  <TextInput value={line.uomId} onChangeText={(value) => updateLine(index, "uomId", value, setLines)} placeholder="UOM id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+                  <SearchableSelect
+                    label="Find unit"
+                    placeholder="Search units"
+                    selectedLabel={line.uomId ? uomNameById.get(Number(line.uomId)) || `Unit ${line.uomId}` : undefined}
+                    options={uomOptions}
+                    onSelect={(id) => updateLine(index, "uomId", id, setLines)}
+                  />
                   <View style={styles.rowBetween}>
                     <TextInput value={line.quantity} onChangeText={(value) => updateLine(index, "quantity", value, setLines)} placeholder="Qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
                     <TextInput value={line.baseQuantity} onChangeText={(value) => updateLine(index, "baseQuantity", value, setLines)} placeholder="Base qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -415,8 +562,20 @@ export function PosScreen({
       ) : (
         <>
           <SectionHeader
-            title={activeView === "quotes" ? "Sales quotes" : activeView === "orders" ? "Sales orders" : activeView === "invoices" ? "Sales invoices" : "Customer receipts"}
-            action={`${activeView === "quotes" ? data.quotes.length : activeView === "orders" ? data.orders.length : activeView === "invoices" ? data.invoices.length : data.receipts.length} docs`}
+            title={
+              activeView === "quotes"
+                ? "Sales quotes"
+                : activeView === "orders"
+                ? "Sales orders"
+                : activeView === "invoices"
+                ? "Sales invoices"
+                : activeView === "receipts"
+                ? "Customer receipts"
+                : activeView === "returns"
+                ? "Sales returns"
+                : "Recurring invoices"
+            }
+            action={`${currentDocumentCount} records`}
           />
           <TextInput value={query} onChangeText={setQuery} placeholder="Search by number, customer, or status" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
           <View style={styles.cardStack}>
@@ -440,13 +599,36 @@ export function PosScreen({
                   <DocumentCard key={entry.id} title={entry.receiptNumber} subtitle={`${customerMap.get(entry.customerId) ?? "Customer"} • ${entry.receiptDate || "No date"}`} amount={entry.amount ?? 0} status={entry.status || "POSTED"} />
                 ))
               : null}
+            {activeView === "returns"
+              ? filteredReturns.map((entry) => (
+                  <DocumentCard
+                    key={entry.id}
+                    title={entry.returnNumber || `Return ${entry.id}`}
+                    subtitle={`${entry.customerId ? customerMap.get(entry.customerId) || "Unknown customer" : "Customer"} • ${entry.returnDate || "No date"}`}
+                    amount={entry.totalAmount ?? 0}
+                    status={entry.status || "OPEN"}
+                  />
+                ))
+              : null}
+            {activeView === "recurring"
+              ? filteredRecurring.map((entry) => (
+                  <DocumentCard
+                    key={entry.id}
+                    title={entry.templateNumber || `Template ${entry.id}`}
+                    subtitle={`${entry.customerId ? customerMap.get(entry.customerId) || "Unknown customer" : "Customer"} • ${entry.frequency || "No frequency"}`}
+                    amount={0}
+                    status={entry.isActive ? "ACTIVE" : "INACTIVE"}
+                    extra={entry.nextRunDate ? `Next run ${entry.nextRunDate}` : "No run scheduled"}
+                  />
+                ))
+              : null}
           </View>
           {detail ? (
             <GlassCard style={styles.detailCard}>
               <Text style={styles.formTitle}>
                 {"quoteNumber" in detail ? detail.quoteNumber : "orderNumber" in detail ? detail.orderNumber : detail.invoiceNumber}
               </Text>
-              <Text style={styles.detailLine}>Customer: {customerMap.get(detail.customerId) || `Customer ${detail.customerId}`}</Text>
+              <Text style={styles.detailLine}>Customer: {customerMap.get(detail.customerId) || "Unknown customer"}</Text>
               <Text style={styles.detailLine}>Warehouse: {detail.warehouseId ? `Warehouse ${detail.warehouseId}` : "Not set"}</Text>
               <Text style={styles.detailLine}>Status: {detail.status || "OPEN"}</Text>
               <Text style={styles.detailLine}>Subtotal: {formatCurrency(detail.subtotal ?? 0)}</Text>
@@ -455,7 +637,7 @@ export function PosScreen({
               {"outstandingAmount" in detail ? <Text style={styles.detailLine}>Outstanding: {formatCurrency(detail.outstandingAmount ?? 0)}</Text> : null}
               {detail.lines.map((line, index) => (
                 <Text key={`${detail.id}-${index}`} style={styles.detailLine}>
-                  {productMap.get(line.productId)?.name || `Product ${line.productId}`} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • UOM {line.uomId} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitPrice ?? 0)}
+                  {productMap.get(line.productId)?.name || "Unknown product"} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • {uomNameById.get(line.uomId) || `Unit ${line.uomId}`} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitPrice ?? 0)}
                 </Text>
               ))}
               {activeView === "quotes" || activeView === "orders" ? (
@@ -513,6 +695,8 @@ const styles = StyleSheet.create({
   wrap: { gap: 20 },
   heading: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: "800" },
   subheading: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600", marginTop: 6 },
+  sheetTriggerRow: { marginBottom: theme.spacing.sm },
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   segment: { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
   segmentActive: { backgroundColor: theme.colors.accent },

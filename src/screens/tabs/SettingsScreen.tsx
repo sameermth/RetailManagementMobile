@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
-import { PurchaseOrder, PurchaseReceipt } from "../../data/entities";
+import { ActionButton, ActionSheet, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
+import { PurchaseOrder, PurchaseReceipt, SalesInvoice, SupplierCatalog } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
 import { formatCurrency } from "../../utils/formatters";
@@ -43,6 +43,7 @@ type BranchRecord = { id: number; code?: string; name?: string; city?: string; s
 type EmployeeRecord = { id: number; username?: string; fullName?: string; email?: string; roleCode?: string; defaultBranchId?: number; active?: boolean; branchAccess?: { branchId?: number; isDefault?: boolean }[] };
 type WarehouseRecord = { id: number; branchId?: number; code?: string; name?: string; isPrimary?: boolean; isActive?: boolean };
 type ExpenseCategoryRecord = { id: number; code?: string; name?: string; expenseAccountId?: number; isActive?: boolean };
+type UomOption = { id: number; code?: string; name?: string; isActive?: boolean };
 
 const emptyPurchaseLine: PurchaseLineDraft = {
   productId: "",
@@ -53,6 +54,180 @@ const emptyPurchaseLine: PurchaseLineDraft = {
   unitValue: "",
   taxRate: "",
 };
+
+function enumLabel(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+const PAYMENT_METHOD_OPTIONS = ["CASH", "CARD", "UPI", "BANK_TRANSFER", "CHEQUE"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const SERVICE_SOURCE_OPTIONS = ["WALK_IN", "PHONE", "EMAIL", "APP", "SALES_RETURN", "WARRANTY_CLAIM"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const SERVICE_PRIORITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const CLAIM_TYPE_OPTIONS = ["WARRANTY", "OUT_OF_WARRANTY", "AMC", "INSTALLATION"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const ACCOUNT_TYPE_OPTIONS = ["ASSET", "LIABILITY", "EQUITY", "INCOME", "EXPENSE", "BANK", "CASH", "RECEIVABLE", "PAYABLE"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const TEMPLATE_TYPE_OPTIONS = [
+  "SYSTEM_ALERT",
+  "SYSTEM_MAINTENANCE",
+  "SALE_CREATED",
+  "SALE_CONFIRMED",
+  "SALE_CANCELLED",
+  "SALE_REFUNDED",
+  "INVOICE_GENERATED",
+  "PAYMENT_RECEIVED",
+  "PURCHASE_ORDER_CREATED",
+  "PURCHASE_ORDER_APPROVED",
+  "PURCHASE_ORDER_RECEIVED",
+  "PURCHASE_ORDER_CANCELLED",
+  "SUPPLIER_PAYMENT_MADE",
+  "LOW_STOCK_ALERT",
+  "OUT_OF_STOCK_ALERT",
+  "STOCK_TRANSFER",
+  "EXPIRY_ALERT",
+  "CUSTOMER_DUE_REMINDER",
+  "CUSTOMER_PAYMENT_CONFIRMATION",
+  "CUSTOMER_WELCOME",
+  "CUSTOMER_BIRTHDAY",
+  "DISTRIBUTOR_ORDER_CREATED",
+  "DISTRIBUTOR_ORDER_SHIPPED",
+  "DISTRIBUTOR_ORDER_DELIVERED",
+  "DISTRIBUTOR_PAYMENT_RECEIVED",
+  "DUE_CREATED",
+  "DUE_REMINDER",
+  "DUE_OVERDUE",
+  "DUE_PAID",
+  "EXPENSE_CREATED",
+  "EXPENSE_APPROVED",
+  "EXPENSE_REJECTED",
+  "EXPENSE_PAID",
+  "REPORT_GENERATED",
+  "REPORT_SCHEDULED",
+  "REPORT_DELIVERED",
+  "USER_CREATED",
+  "USER_UPDATED",
+  "PASSWORD_CHANGED",
+  "LOGIN_ALERT",
+  "PROMOTIONAL_OFFER",
+  "NEW_PRODUCT_ARRIVAL",
+  "SEASONAL_GREETINGS",
+].map((id) => ({ id, label: enumLabel(id) }));
+
+const TEMPLATE_CHANNEL_OPTIONS = ["EMAIL", "SMS", "PUSH_NOTIFICATION", "IN_APP", "WHATSAPP", "TELEGRAM", "SLACK", "WEBHOOK"].map((id) => ({
+  id,
+  label: enumLabel(id),
+}));
+
+const SCHEDULE_REPORT_TYPE_OPTIONS = [
+  "SALES_SUMMARY",
+  "SALES_DETAILED",
+  "SALES_BY_PRODUCT",
+  "SALES_BY_CATEGORY",
+  "SALES_BY_CUSTOMER",
+  "SALES_BY_USER",
+  "TOP_PRODUCTS",
+  "TOP_CUSTOMERS",
+  "INVENTORY_SUMMARY",
+  "INVENTORY_DETAILED",
+  "LOW_STOCK_REPORT",
+  "STOCK_MOVEMENT",
+  "INVENTORY_VALUATION",
+  "REORDER_REPORT",
+  "PURCHASE_SUMMARY",
+  "PURCHASE_DETAILED",
+  "PURCHASE_BY_SUPPLIER",
+  "PURCHASE_BY_PRODUCT",
+  "SUPPLIER_PERFORMANCE",
+  "PROFIT_LOSS",
+  "EXPENSE_SUMMARY",
+  "EXPENSE_DETAILED",
+  "EXPENSE_BY_CATEGORY",
+  "REVENUE_REPORT",
+  "TAX_REPORT",
+  "CUSTOMER_DUES",
+  "CUSTOMER_PAYMENTS",
+  "CUSTOMER_LIFETIME_VALUE",
+  "DISTRIBUTOR_SALES",
+  "DISTRIBUTOR_PERFORMANCE",
+  "DISTRIBUTOR_COMMISSION",
+  "USER_ACTIVITY",
+  "AUDIT_TRAIL",
+  "SYSTEM_LOGS",
+].map((id) => ({ id, label: enumLabel(id) }));
+
+const SCHEDULE_FORMAT_OPTIONS = ["PDF", "EXCEL", "CSV", "HTML", "JSON"].map((id) => ({ id, label: id }));
+const SCHEDULE_FREQUENCY_OPTIONS = ["DAILY", "WEEKLY", "MONTHLY"].map((id) => ({ id, label: enumLabel(id) }));
+const EMPLOYEE_ROLE_OPTIONS = [
+  "OWNER",
+  "ADMIN",
+  "MANAGER",
+  "SUPERVISOR",
+  "ACCOUNTANT",
+  "CASHIER",
+  "SALES_EXECUTIVE",
+  "STORE_KEEPER",
+  "SUPPORT",
+].map((id) => ({ id, label: enumLabel(id) }));
+
+const STATE_CODE_OPTIONS = [
+  ["01", "Jammu and Kashmir"],
+  ["02", "Himachal Pradesh"],
+  ["03", "Punjab"],
+  ["04", "Chandigarh"],
+  ["05", "Uttarakhand"],
+  ["06", "Haryana"],
+  ["07", "Delhi"],
+  ["08", "Rajasthan"],
+  ["09", "Uttar Pradesh"],
+  ["10", "Bihar"],
+  ["11", "Sikkim"],
+  ["12", "Arunachal Pradesh"],
+  ["13", "Nagaland"],
+  ["14", "Manipur"],
+  ["15", "Mizoram"],
+  ["16", "Tripura"],
+  ["17", "Meghalaya"],
+  ["18", "Assam"],
+  ["19", "West Bengal"],
+  ["20", "Jharkhand"],
+  ["21", "Odisha"],
+  ["22", "Chhattisgarh"],
+  ["23", "Madhya Pradesh"],
+  ["24", "Gujarat"],
+  ["26", "Dadra and Nagar Haveli and Daman and Diu"],
+  ["27", "Maharashtra"],
+  ["29", "Karnataka"],
+  ["30", "Goa"],
+  ["31", "Lakshadweep"],
+  ["32", "Kerala"],
+  ["33", "Tamil Nadu"],
+  ["34", "Puducherry"],
+  ["35", "Andaman and Nicobar Islands"],
+  ["36", "Telangana"],
+  ["37", "Andhra Pradesh"],
+  ["38", "Ladakh"],
+].map(([id, name]) => ({ id, label: `${id} - ${name}` }));
 
 export function SettingsScreen({
   initialView = "workspace",
@@ -76,16 +251,19 @@ export function SettingsScreen({
     createSupplierPayment,
     data,
     error,
+    loadInvoice,
     loadPurchaseOrder,
     loadPurchaseReceipt,
+    loadSupplierCatalog,
     refreshAll,
     session,
-    signOut,
+    switchOrganization,
     updateSessionDraft,
   } = useAppData();
   const [viewHistory, setViewHistory] = useState<MoreView[]>([initialView]);
   const [draftType, setDraftType] = useState<PurchaseDraft>("order");
   const [supplierId, setSupplierId] = useState("");
+  const [supplierCatalog, setSupplierCatalog] = useState<SupplierCatalog | null>(null);
   const [documentDate, setDocumentDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState("");
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
@@ -102,6 +280,7 @@ export function SettingsScreen({
   const [salesReturns, setSalesReturns] = useState<SalesReturn[]>([]);
   const [purchaseReturns, setPurchaseReturns] = useState<PurchaseReturn[]>([]);
   const [returnForm, setReturnForm] = useState({ kind: "sales", originalId: "", productLineId: "", quantity: "1", baseQuantity: "1", reason: "" });
+  const [selectedReturnDocumentFull, setSelectedReturnDocumentFull] = useState<SalesInvoice | PurchaseReceipt | null>(null);
 
   const [tickets, setTickets] = useState<ServiceTicket[]>([]);
   const [claims, setClaims] = useState<WarrantyClaim[]>([]);
@@ -163,14 +342,18 @@ export function SettingsScreen({
     scheduleRecipients: "",
   });
   const [moduleMessage, setModuleMessage] = useState("");
+  const [uoms, setUoms] = useState<UomOption[]>([]);
+  const [switchingOrganization, setSwitchingOrganization] = useState(false);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState(String(session?.organizationId ?? ""));
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const activeView = viewHistory[viewHistory.length - 1] ?? initialView;
   const visibleViews: MoreView[] = allowedViews ?? ["workspace", "purchases", "returns", "service", "finance", "system", "platform"];
   const supplierMap = new Map(data.suppliers.map((supplier) => [supplier.id, supplier]));
   const productMap = new Map(data.products.map((product) => [product.id, product]));
   const customerMap = new Map(data.customers.map((customer) => [customer.id, customer]));
-  const branchMap = new Map(branches.map((branch) => [branch.id, branch]));
-  const warehouseMap = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse]));
-  const accountMap = new Map(accounts.map((account) => [account.id, account]));
+  const branchMap = new Map((branches || []).map((branch) => [branch.id, branch]));
+  const warehouseMap = new Map((warehouses || []).map((warehouse) => [warehouse.id, warehouse]));
+  const accountMap = new Map((accounts || []).map((account) => [account.id, account]));
   const supplierOptions = data.suppliers.map((supplier) => ({
     id: String(supplier.id),
     label: supplier.name,
@@ -179,19 +362,44 @@ export function SettingsScreen({
   const productOptions = data.products.map((product) => ({
     id: String(product.id),
     label: product.name,
-    meta: `${product.sku || ""}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
+    meta: `${product.sku || ""}${product.baseUomId ? ` • ${uoms.find((uom) => uom.id === product.baseUomId)?.name || uoms.find((uom) => uom.id === product.baseUomId)?.code || `Unit ${product.baseUomId}`}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
   }));
-  const branchOptions = branches.map((branch) => ({
+  const branchOptions = (branches || []).map((branch) => ({
     id: String(branch.id),
     label: branch.name || branch.code || `Branch ${branch.id}`,
     meta: branch.code || branch.state || undefined,
   }));
-  const warehouseOptions = warehouses.map((warehouse) => ({
+  const warehouseOptions = (warehouses || []).map((warehouse) => ({
     id: String(warehouse.id),
     label: warehouse.name || warehouse.code || `Warehouse ${warehouse.id}`,
     meta: `${warehouse.code || ""}${branchMap.get(warehouse.branchId ?? 0)?.name ? ` • ${branchMap.get(warehouse.branchId ?? 0)?.name}` : ""}${warehouse.isPrimary ? " • Primary" : ""}`,
   }));
-  const expenseCategoryOptions = expenseCategories.map((category) => ({
+  const purchaseOrderOptions = data.purchaseOrders.map((order) => ({
+    id: String(order.id),
+    label: order.poNumber || `PO ${order.id}`,
+    meta: `${supplierMap.get(order.supplierId)?.name || "Unknown supplier"}${order.poDate ? ` • ${order.poDate}` : ""}`,
+  }));
+  const uomOptions = uoms.length
+    ? uoms.map((uom) => ({
+        id: String(uom.id),
+        label: uom.name || uom.code || `Unit ${uom.id}`,
+        meta: uom.code ? `Code ${uom.code}` : undefined,
+      }))
+    : Array.from(
+        new Set(data.products.map((product) => product.baseUomId).filter((id): id is number => id != null)),
+      ).map((id) => ({
+        id: String(id),
+        label: `Unit ${id}`,
+      }));
+  const uomNameById = new Map(uomOptions.map((uom) => [Number(uom.id), uom.label]));
+  const organizationOptions = (session?.memberships || [])
+    .filter((membership) => membership.active !== false)
+    .map((membership) => ({
+      id: String(membership.organizationId),
+      label: membership.organizationName || membership.organizationCode || `Org ${membership.organizationId}`,
+      meta: membership.roleName || membership.roleCode || undefined,
+    }));
+  const expenseCategoryOptions = (expenseCategories || []).map((category) => ({
     id: String(category.id),
     label: category.name || category.code || `Category ${category.id}`,
     meta: category.code || undefined,
@@ -199,13 +407,57 @@ export function SettingsScreen({
   const salesInvoiceOptions = data.invoices.map((invoice) => ({
     id: String(invoice.id),
     label: invoice.invoiceNumber || `Invoice ${invoice.id}`,
-    meta: `${customerMap.get(invoice.customerId)?.fullName || `Customer ${invoice.customerId}`}${invoice.invoiceDate ? ` • ${invoice.invoiceDate}` : ""}`,
+    meta: `${customerMap.get(invoice.customerId)?.fullName || "Unknown customer"}${invoice.invoiceDate ? ` • ${invoice.invoiceDate}` : ""}`,
   }));
   const purchaseReceiptOptions = data.purchaseReceipts.map((receipt) => ({
     id: String(receipt.id),
     label: receipt.receiptNumber || `Receipt ${receipt.id}`,
-    meta: `${supplierMap.get(receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`}${receipt.receiptDate ? ` • ${receipt.receiptDate}` : ""}`,
+    meta: `${supplierMap.get(receipt.supplierId)?.name || "Unknown supplier"}${receipt.receiptDate ? ` • ${receipt.receiptDate}` : ""}`,
   }));
+  const supplierProductOptions = supplierCatalog?.products.map((product) => ({
+    id: String(product.supplierProductId),
+    label: product.supplierProductName || product.supplierProductCode || `Product ${product.supplierProductId}`,
+    meta: product.supplierProductCode ? `Code: ${product.supplierProductCode}` : undefined,
+  })) || [];
+  const returnLineOptions = selectedReturnDocumentFull?.lines.map((line) => ({
+    id: String(line.id),
+    label: `Line ${line.id}: ${productMap.get(line.productId)?.name || "Unknown product"}`,
+    meta: `Qty: ${line.quantity} • Price: ${formatCurrency((line as any).unitPrice || (line as any).unitValue || 0)}`,
+  })) || [];
+  const purchaseSummaryText = `${data.purchaseOrders.length} orders • ${data.purchaseReceipts.length} receipts • ${data.supplierPayments.length} payments`;
+  const returnSummaryText = `${salesReturns.length} sales returns • ${purchaseReturns.length} purchase returns`;
+  const serviceSummaryText = `${tickets.length} tickets • ${claims.length} claims • ${replacements.length} replacements`;
+  const financeSummaryText = `${accounts.length} accounts • ${vouchers.length} vouchers • ${expenses.length} expenses`;
+  const systemSummaryText = `${(organizations || []).length} orgs • ${(branches || []).length} branches • ${(users || []).length} users`;
+  const platformSummaryText = `${(templates || []).length} templates • ${(schedules || []).length} schedules`;
+  const activeModuleSummary =
+    activeView === "workspace"
+      ? "Session and workspace settings."
+      : activeView === "purchases"
+        ? purchaseSummaryText
+        : activeView === "returns"
+          ? returnSummaryText
+          : activeView === "service"
+            ? serviceSummaryText
+            : activeView === "finance"
+              ? financeSummaryText
+              : activeView === "system"
+                ? systemSummaryText
+                : platformSummaryText;
+  const activeModuleLabel =
+    activeView === "workspace"
+      ? "Workspace"
+      : activeView === "purchases"
+        ? "Purchases"
+        : activeView === "returns"
+          ? "Returns"
+          : activeView === "service"
+            ? "Service"
+            : activeView === "finance"
+              ? "Finance"
+              : activeView === "system"
+                ? "System"
+                : "Platform";
   const isPurchasesDirty =
     activeView === "purchases" &&
     (
@@ -260,7 +512,41 @@ export function SettingsScreen({
     setViewHistory([initialView]);
   }, [initialView]);
 
+  useEffect(() => {
+    setSelectedOrganizationId(String(session?.organizationId ?? ""));
+  }, [session?.organizationId]);
+
+  useEffect(() => {
+    apiGet<UomOption[]>("/api/erp/catalog/uoms")
+      .then(setUoms)
+      .catch(() => setUoms([]));
+  }, [apiGet]);
+
+  useEffect(() => {
+    if (supplierId && activeView === "purchases") {
+      loadSupplierCatalog(Number(supplierId)).then(setSupplierCatalog).catch(() => setSupplierCatalog(null));
+    } else {
+      setSupplierCatalog(null);
+    }
+  }, [supplierId, activeView, loadSupplierCatalog]);
+
+  useEffect(() => {
+    if (returnForm.originalId && activeView === "returns") {
+      const id = Number(returnForm.originalId);
+      if (returnForm.kind === "sales") {
+        loadInvoice(id).then(setSelectedReturnDocumentFull).catch(() => setSelectedReturnDocumentFull(null));
+      } else {
+        loadPurchaseReceipt(id).then(setSelectedReturnDocumentFull).catch(() => setSelectedReturnDocumentFull(null));
+      }
+    } else {
+      setSelectedReturnDocumentFull(null);
+    }
+  }, [returnForm.originalId, returnForm.kind, activeView, loadInvoice, loadPurchaseReceipt]);
+
   function navigateView(view: MoreView) {
+    setSelectedOrder(null);
+    setSelectedReceipt(null);
+    setModuleMessage("");
     setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
   }
 
@@ -690,11 +976,50 @@ export function SettingsScreen({
     setModuleMessage("Platform tooling actions submitted.");
   }
 
+  async function handleSwitchOrganization() {
+    if (!selectedOrganizationId || !session) {
+      return;
+    }
+    const nextOrganizationId = Number(selectedOrganizationId);
+    if (!Number.isFinite(nextOrganizationId)) {
+      return;
+    }
+    if (nextOrganizationId === session.organizationId) {
+      setModuleMessage("You are already in this organization.");
+      return;
+    }
+
+    Alert.alert("Switch organization?", "This will reload module data for the selected organization.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Switch",
+        onPress: () => {
+          void (async () => {
+            setSwitchingOrganization(true);
+            try {
+              await switchOrganization(nextOrganizationId);
+              setModuleMessage("Organization switched successfully.");
+            } catch (nextError) {
+              setModuleMessage(nextError instanceof Error ? nextError.message : "Unable to switch organization.");
+            } finally {
+              setSwitchingOrganization(false);
+            }
+          })();
+        },
+      },
+    ]);
+  }
+
   return (
     <View style={styles.wrap}>
       <View>
         <Text style={styles.heading}>{title}</Text>
         <Text style={styles.subheading}>{subtitle}</Text>
+      </View>
+
+      <View style={styles.summaryRow}>
+        <Pill label={activeModuleLabel} tone="blue" />
+        <Text style={styles.summaryHint}>{activeModuleSummary}</Text>
       </View>
 
       {selectedOrder || selectedReceipt || viewHistory.length > 1 ? <BackButton label={selectedOrder || selectedReceipt ? "Back to list" : "Back"} onPress={goBack} /> : null}
@@ -709,6 +1034,101 @@ export function SettingsScreen({
           );
         })}
       </View>
+
+      {(activeView === "finance" || activeView === "system") ? (
+        <View style={styles.sheetTriggerRow}>
+          <ActionButton
+            label="Open quick actions"
+            icon="flash-outline"
+            inverted
+            onPress={() => setShowQuickActions(true)}
+          />
+        </View>
+      ) : null}
+
+      <ActionSheet
+        label={activeView === "finance" ? "Finance quick actions" : "System quick actions"}
+        visible={showQuickActions}
+        onClose={() => setShowQuickActions(false)}
+        actions={
+          activeView === "finance"
+            ? [
+                {
+                  id: "finance-account",
+                  label: "New account",
+                  icon: "wallet-outline",
+                  description: "Create a chart account record.",
+                  onPress: () => setFinanceForm((current) => ({ ...current, accountCode: "", accountName: "", accountType: "BANK" })),
+                },
+                {
+                  id: "finance-voucher",
+                  label: "New voucher",
+                  icon: "document-text-outline",
+                  description: "Start a voucher entry flow.",
+                  onPress: () => setFinanceForm((current) => ({ ...current, voucherAccountId: "", voucherDebit: "", voucherCredit: "" })),
+                },
+                {
+                  id: "finance-expense",
+                  label: "New expense",
+                  icon: "receipt-outline",
+                  description: "Create an expense record.",
+                  onPress: () => setFinanceForm((current) => ({ ...current, expenseCategoryId: "", expenseAmount: "" })),
+                },
+                {
+                  id: "finance-bankrec",
+                  label: "Bank reconciliation",
+                  icon: "swap-horizontal",
+                  description: "Open bank reconciliation form.",
+                  onPress: () => setFinanceForm((current) => ({ ...current, bankAccountId: "" })),
+                },
+              ]
+            : [
+                {
+                  id: "system-org",
+                  label: "New organization",
+                  icon: "business-outline",
+                  description: "Create or update organization details.",
+                  onPress: () => setSystemForm((current) => ({ ...current, organizationName: "", organizationCode: "", organizationGstin: "" })),
+                },
+                {
+                  id: "system-branch",
+                  label: "New branch",
+                  icon: "location-outline",
+                  description: "Start a branch setup flow.",
+                  onPress: () => setSystemForm((current) => ({ ...current, branchCode: "", branchName: "" })),
+                },
+                {
+                  id: "system-employee",
+                  label: "New employee",
+                  icon: "person-add-outline",
+                  description: "Create a user and employee record.",
+                  onPress: () => setSystemForm((current) => ({ ...current, employeeUsername: "", employeeFullName: "", employeeEmail: "", employeePhone: "" })),
+                },
+                {
+                  id: "system-tax",
+                  label: "Tax registration",
+                  icon: "document-text-outline",
+                  description: "Open tax registration details.",
+                  onPress: () => setSystemForm((current) => ({ ...current, taxName: "", taxGstin: "", taxStateCode: "27" })),
+                },
+              ]
+        }
+      />
+
+      {activeView === "purchases" ? (
+        <View style={styles.actionRow}>
+          <ActionButton label="Create order" icon="document-text-outline" inverted onPress={() => { setDraftType("order"); navigateViewWithGuard("purchases"); }} />
+          <ActionButton label="Create receipt" icon="receipt-outline" inverted onPress={() => { setDraftType("receipt"); navigateViewWithGuard("purchases"); }} />
+          <ActionButton label="Supplier payment" icon="card-outline" inverted onPress={() => { setDraftType("payment"); navigateViewWithGuard("purchases"); }} />
+        </View>
+      ) : null}
+
+      {activeView === "returns" ? (
+        <View style={styles.actionRow}>
+          <ActionButton label="Sales return" icon="document-text-outline" inverted onPress={() => { setReturnForm((current) => ({ ...current, kind: "sales" })); navigateViewWithGuard("returns"); }} />
+          <ActionButton label="Purchase return" icon="receipt-outline" inverted onPress={() => { setReturnForm((current) => ({ ...current, kind: "purchase" })); navigateViewWithGuard("returns"); }} />
+        </View>
+      ) : null}
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {moduleMessage ? <Text style={styles.helperText}>{moduleMessage}</Text> : null}
@@ -729,15 +1149,27 @@ export function SettingsScreen({
           </GlassCard>
           <GlassCard style={styles.formCard}>
             <SearchableSelect
+              label="Find organization"
+              placeholder="Search organizations"
+              selectedLabel={organizationOptions.find((organization) => organization.id === selectedOrganizationId)?.label}
+              options={organizationOptions}
+              onSelect={setSelectedOrganizationId}
+            />
+            <ActionButton
+              label={switchingOrganization ? "Switching..." : "Switch organization"}
+              icon="swap-horizontal"
+              inverted
+              onPress={switchingOrganization ? undefined : handleSwitchOrganization}
+            />
+            <SearchableSelect
               label="Find default warehouse"
               placeholder="Search warehouses"
               selectedLabel={warehouses.find((warehouse) => String(warehouse.id) === String(session?.warehouseId ?? ""))?.name}
               options={warehouseOptions}
               onSelect={(id) => updateSessionDraft({ warehouseId: id })}
             />
-            <TextInput defaultValue={String(session?.warehouseId ?? "")} onChangeText={(value) => updateSessionDraft({ warehouseId: value })} placeholder="Default warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <Text style={styles.helperText}>{organizationOptions.length} connected organizations available for switching.</Text>
             <ActionButton label="Refresh backend data" icon="refresh" onPress={refreshAll} />
-            <ActionButton label="Sign out" icon="log-out" inverted onPress={signOut} />
           </GlassCard>
         </>
       ) : null}
@@ -773,16 +1205,29 @@ export function SettingsScreen({
                 );
               })}
             </View>
-            <TextInput value={supplierId} onChangeText={setSupplierId} placeholder="Supplier id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <Text style={styles.helperText}>Selected supplier: {supplierMap.get(Number(supplierId))?.name || "Pick a supplier to link documents and lines."}</Text>
             <TextInput value={documentDate} onChangeText={setDocumentDate} placeholder="Document date" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            {draftType === "receipt" ? <TextInput value={purchaseOrderId} onChangeText={setPurchaseOrderId} placeholder="Purchase order id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" /> : null}
+            {draftType === "receipt" ? (
+              <SearchableSelect
+                label="Find purchase order"
+                placeholder="Search purchase orders"
+                selectedLabel={data.purchaseOrders.find((order) => String(order.id) === purchaseOrderId)?.poNumber}
+                options={purchaseOrderOptions}
+                onSelect={setPurchaseOrderId}
+              />
+            ) : null}
             {draftType === "receipt" ? <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Due date" placeholderTextColor={theme.colors.textMuted} style={styles.input} /> : null}
             <TextInput value={placeOfSupplyStateCode} onChangeText={setPlaceOfSupplyStateCode} placeholder="Place of supply state code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={remarks} onChangeText={setRemarks} placeholder="Remarks" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             {draftType === "payment" ? (
               <>
-                <TextInput value={paymentMethod} onChangeText={setPaymentMethod} placeholder="Payment method" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+                <SearchableSelect
+                  label="Payment method"
+                  placeholder="Select payment method"
+                  selectedLabel={PAYMENT_METHOD_OPTIONS.find((option) => option.id === paymentMethod)?.label}
+                  options={PAYMENT_METHOD_OPTIONS}
+                  onSelect={setPaymentMethod}
+                />
                 <TextInput value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Reference number" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
                 <TextInput value={paymentAmount} onChangeText={setPaymentAmount} placeholder="Payment amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
               </>
@@ -791,7 +1236,6 @@ export function SettingsScreen({
                 {lines.map((line, index) => (
                   <GlassCard key={`purchase-line-${index}`} style={styles.lineCard}>
                     <Text style={styles.entityTitle}>Line {index + 1}</Text>
-                    <TextInput value={line.productId} onChangeText={(value) => updateLine(index, "productId", value, setLines)} placeholder="Store product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
                     <SearchableSelect
                       label={`Find product for line ${index + 1}`}
                       placeholder="Search products"
@@ -824,8 +1268,20 @@ export function SettingsScreen({
                         );
                       })}
                     </View>
-                    <TextInput value={line.supplierProductId} onChangeText={(value) => updateLine(index, "supplierProductId", value, setLines)} placeholder="Supplier product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-                    <TextInput value={line.uomId} onChangeText={(value) => updateLine(index, "uomId", value, setLines)} placeholder="UOM id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+                    <SearchableSelect
+                      label="Find supplier product"
+                      placeholder="Search supplier products"
+                      selectedLabel={supplierProductOptions.find((option) => option.id === line.supplierProductId)?.label}
+                      options={supplierProductOptions}
+                      onSelect={(id) => updateLine(index, "supplierProductId", id, setLines)}
+                    />
+                    <SearchableSelect
+                      label="Find unit"
+                      placeholder="Search units"
+                      selectedLabel={line.uomId ? uomNameById.get(Number(line.uomId)) || `Unit ${line.uomId}` : undefined}
+                      options={uomOptions}
+                      onSelect={(id) => updateLine(index, "uomId", id, setLines)}
+                    />
                     <View style={styles.rowBetween}>
                       <TextInput value={line.quantity} onChangeText={(value) => updateLine(index, "quantity", value, setLines)} placeholder="Qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
                       <TextInput value={line.baseQuantity} onChangeText={(value) => updateLine(index, "baseQuantity", value, setLines)} placeholder="Base qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -838,26 +1294,26 @@ export function SettingsScreen({
             )}
             <ActionButton label={saving ? "Saving..." : `Create ${draftType}`} icon="bag" onPress={saving ? undefined : handleCreatePurchase} />
           </GlassCard>
-          <SectionHeader title="Purchase orders" action={`${data.purchaseOrders.length} docs`} />
+          <SectionHeader title="Purchase orders" action={`${data.purchaseOrders.length} records`} />
           <View style={styles.list}>
             {data.purchaseOrders.map((order) => (
               <Pressable key={order.id} onPress={async () => setSelectedOrder(await loadPurchaseOrder(order.id))}>
-                <DocCard title={order.poNumber || `PO ${order.id}`} subtitle={`${supplierMap.get(order.supplierId)?.name || `Supplier ${order.supplierId}`} • ${order.poDate || "No date"}`} amount={order.totalAmount ?? 0} status={order.status || "OPEN"} />
+                <DocCard title={order.poNumber || `PO ${order.id}`} subtitle={`${supplierMap.get(order.supplierId)?.name || "Unknown supplier"} • ${order.poDate || "No date"}`} amount={order.totalAmount ?? 0} status={order.status || "OPEN"} />
               </Pressable>
             ))}
           </View>
-          <SectionHeader title="Purchase receipts" action={`${data.purchaseReceipts.length} docs`} />
+          <SectionHeader title="Purchase receipts" action={`${data.purchaseReceipts.length} records`} />
           <View style={styles.list}>
             {data.purchaseReceipts.map((receipt) => (
               <Pressable key={receipt.id} onPress={async () => setSelectedReceipt(await loadPurchaseReceipt(receipt.id))}>
-                <DocCard title={receipt.receiptNumber || `PR ${receipt.id}`} subtitle={`${supplierMap.get(receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`} • ${receipt.receiptDate || "No date"}`} amount={receipt.totalAmount ?? 0} status={receipt.status || "OPEN"} />
+                <DocCard title={receipt.receiptNumber || `PR ${receipt.id}`} subtitle={`${supplierMap.get(receipt.supplierId)?.name || "Unknown supplier"} • ${receipt.receiptDate || "No date"}`} amount={receipt.totalAmount ?? 0} status={receipt.status || "OPEN"} />
               </Pressable>
             ))}
           </View>
-          <SectionHeader title="Supplier payments" action={`${data.supplierPayments.length} docs`} />
+          <SectionHeader title="Supplier payments" action={`${data.supplierPayments.length} records`} />
           <View style={styles.list}>
             {data.supplierPayments.map((payment) => (
-              <DocCard key={payment.id} title={payment.paymentNumber || `PAY ${payment.id}`} subtitle={`${supplierMap.get(payment.supplierId)?.name || `Supplier ${payment.supplierId}`} • ${payment.paymentDate || "No date"}`} amount={payment.amount ?? 0} status={payment.status || "POSTED"} />
+              <DocCard key={payment.id} title={payment.paymentNumber || `PAY ${payment.id}`} subtitle={`${supplierMap.get(payment.supplierId)?.name || "Unknown supplier"} • ${payment.paymentDate || "No date"}`} amount={payment.amount ?? 0} status={payment.status || "POSTED"} />
             ))}
           </View>
           {selectedOrder ? <PurchaseDetail title={selectedOrder.poNumber || `PO ${selectedOrder.id}`} lines={selectedOrder.lines} total={selectedOrder.totalAmount ?? 0} productMap={productMap} /> : null}
@@ -885,7 +1341,7 @@ export function SettingsScreen({
                 placeholder="Search invoices"
                 selectedLabel={data.invoices.find((invoice) => String(invoice.id) === returnForm.originalId)?.invoiceNumber}
                 options={salesInvoiceOptions}
-                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id }))}
+                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id, productLineId: "" }))}
               />
             ) : (
               <SearchableSelect
@@ -893,11 +1349,16 @@ export function SettingsScreen({
                 placeholder="Search purchase receipts"
                 selectedLabel={data.purchaseReceipts.find((receipt) => String(receipt.id) === returnForm.originalId)?.receiptNumber}
                 options={purchaseReceiptOptions}
-                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id }))}
+                onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id, productLineId: "" }))}
               />
             )}
-            <TextInput value={returnForm.originalId} onChangeText={(value) => setReturnForm((current) => ({ ...current, originalId: value }))} placeholder={returnForm.kind === "sales" ? "Original invoice id" : "Original purchase receipt id"} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={returnForm.productLineId} onChangeText={(value) => setReturnForm((current) => ({ ...current, productLineId: value }))} placeholder="Original line id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Find original line"
+              placeholder="Search document lines"
+              selectedLabel={returnLineOptions.find((option) => option.id === returnForm.productLineId)?.label}
+              options={returnLineOptions}
+              onSelect={(id) => setReturnForm((current) => ({ ...current, productLineId: id }))}
+            />
             <View style={styles.rowBetween}>
               <TextInput value={returnForm.quantity} onChangeText={(value) => setReturnForm((current) => ({ ...current, quantity: value }))} placeholder="Quantity" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
               <TextInput value={returnForm.baseQuantity} onChangeText={(value) => setReturnForm((current) => ({ ...current, baseQuantity: value }))} placeholder="Base quantity" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -910,9 +1371,9 @@ export function SettingsScreen({
             </Text>
             <ActionButton label="Create return" icon="return-up-back" onPress={handleCreateReturn} />
           </GlassCard>
-          <SectionHeader title="Sales returns" action={`${salesReturns.length} docs`} />
+          <SectionHeader title="Sales returns" action={`${salesReturns.length} records`} />
           <View style={styles.list}>{salesReturns.map((item) => <DocCard key={item.id} title={item.returnNumber || `SR ${item.id}`} subtitle={item.returnDate || "No date"} amount={item.totalAmount ?? 0} status={item.status || "OPEN"} />)}</View>
-          <SectionHeader title="Purchase returns" action={`${purchaseReturns.length} docs`} />
+          <SectionHeader title="Purchase returns" action={`${purchaseReturns.length} records`} />
           <View style={styles.list}>{purchaseReturns.map((item) => <DocCard key={item.id} title={item.returnNumber || `PR ${item.id}`} subtitle={item.returnDate || "No date"} amount={item.totalAmount ?? 0} status={item.status || "OPEN"} />)}</View>
         </>
       ) : null}
@@ -971,13 +1432,28 @@ export function SettingsScreen({
                 </Pressable>
               ))}
             </View>
-            <TextInput value={serviceForm.customerId} onChangeText={(value) => setServiceForm((current) => ({ ...current, customerId: value }))} placeholder="Customer id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={serviceForm.productId} onChangeText={(value) => setServiceForm((current) => ({ ...current, productId: value }))} placeholder="Product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={serviceForm.complaintSummary} onChangeText={(value) => setServiceForm((current) => ({ ...current, complaintSummary: value }))} placeholder="Complaint summary" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.priority} onChangeText={(value) => setServiceForm((current) => ({ ...current, priority: value }))} placeholder="Priority" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.claimType} onChangeText={(value) => setServiceForm((current) => ({ ...current, claimType: value }))} placeholder="Claim type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.replacementProductId} onChangeText={(value) => setServiceForm((current) => ({ ...current, replacementProductId: value }))} placeholder="Replacement product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={serviceForm.warehouseId} onChangeText={(value) => setServiceForm((current) => ({ ...current, warehouseId: value }))} placeholder="Warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Source type"
+              placeholder="Select source type"
+              selectedLabel={SERVICE_SOURCE_OPTIONS.find((option) => option.id === serviceForm.sourceType)?.label}
+              options={SERVICE_SOURCE_OPTIONS}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, sourceType: id }))}
+            />
+            <SearchableSelect
+              label="Priority"
+              placeholder="Select priority"
+              selectedLabel={SERVICE_PRIORITY_OPTIONS.find((option) => option.id === serviceForm.priority)?.label}
+              options={SERVICE_PRIORITY_OPTIONS}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, priority: id }))}
+            />
+            <SearchableSelect
+              label="Claim type"
+              placeholder="Select claim type"
+              selectedLabel={CLAIM_TYPE_OPTIONS.find((option) => option.id === serviceForm.claimType)?.label}
+              options={CLAIM_TYPE_OPTIONS}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, claimType: id }))}
+            />
             <Text style={styles.helperText}>
               Customer {customerMap.get(Number(serviceForm.customerId))?.fullName || "not selected"} • Product {productMap.get(Number(serviceForm.productId))?.name || "not selected"} • Replacement {productMap.get(Number(serviceForm.replacementProductId))?.name || "not selected"} • Warehouse {warehouseMap.get(Number(serviceForm.warehouseId))?.name || "not selected"}
             </Text>
@@ -985,17 +1461,23 @@ export function SettingsScreen({
             <ActionButton label="Create claim" icon="shield-checkmark" inverted onPress={handleCreateClaim} />
             <ActionButton label="Issue replacement" icon="repeat" inverted onPress={handleCreateReplacement} />
           </GlassCard>
-          <SectionHeader title="Tickets" action={`${tickets.length} docs`} />
+          <SectionHeader title="Tickets" action={`${tickets.length} records`} />
           <View style={styles.list}>{tickets.map((ticket) => <DocCard key={ticket.id} title={ticket.ticketNumber || `TKT ${ticket.id}`} subtitle={ticket.complaintSummary || "No summary"} amount={0} status={ticket.status || ticket.priority || "OPEN"} hideAmount />)}</View>
-          <SectionHeader title="Warranty claims" action={`${claims.length} docs`} />
+          <SectionHeader title="Warranty claims" action={`${claims.length} records`} />
           <View style={styles.list}>{claims.map((claim) => <DocCard key={claim.id} title={claim.claimNumber || `CLM ${claim.id}`} subtitle={claim.claimType || "Claim"} amount={0} status={claim.status || "OPEN"} hideAmount />)}</View>
-          <SectionHeader title="Replacements" action={`${replacements.length} docs`} />
+          <SectionHeader title="Replacements" action={`${replacements.length} records`} />
           <View style={styles.list}>{replacements.map((item) => <DocCard key={item.id} title={item.replacementNumber || `REP ${item.id}`} subtitle={item.replacementType || "Replacement"} amount={0} status={item.status || "OPEN"} hideAmount />)}</View>
         </>
       ) : null}
 
       {activeView === "finance" ? (
         <>
+          <View style={styles.actionRow}>
+            <ActionButton label="New account" icon="wallet-outline" inverted onPress={() => setFinanceForm((current) => ({ ...current, accountCode: "", accountName: "", accountType: "BANK" }))} />
+            <ActionButton label="New voucher" icon="document-text-outline" inverted onPress={() => setFinanceForm((current) => ({ ...current, voucherAccountId: "", voucherDebit: "", voucherCredit: "" }))} />
+            <ActionButton label="New expense" icon="receipt-outline" inverted onPress={() => setFinanceForm((current) => ({ ...current, expenseCategoryId: "", expenseAmount: "" }))} />
+            <ActionButton label="Bank rec" icon="swap-horizontal" inverted onPress={() => setFinanceForm((current) => ({ ...current, bankAccountId: "" }))} />
+          </View>
           <SectionHeader title="Finance actions" action="Accounts, vouchers, expenses, bank rec" />
           <GlassCard style={styles.formCard}>
             <SearchableSelect
@@ -1029,15 +1511,18 @@ export function SettingsScreen({
             />
             <TextInput value={financeForm.accountCode} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountCode: value }))} placeholder="New account code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={financeForm.accountName} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountName: value }))} placeholder="New account name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={financeForm.accountType} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountType: value }))} placeholder="Account type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={financeForm.voucherAccountId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherAccountId: value }))} placeholder="Voucher account id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Account type"
+              placeholder="Select account type"
+              selectedLabel={ACCOUNT_TYPE_OPTIONS.find((option) => option.id === financeForm.accountType)?.label}
+              options={ACCOUNT_TYPE_OPTIONS}
+              onSelect={(id) => setFinanceForm((current) => ({ ...current, accountType: id }))}
+            />
             <View style={styles.rowBetween}>
               <TextInput value={financeForm.voucherDebit} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherDebit: value }))} placeholder="Debit" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
               <TextInput value={financeForm.voucherCredit} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherCredit: value }))} placeholder="Credit" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
             </View>
-            <TextInput value={financeForm.expenseCategoryId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseCategoryId: value }))} placeholder="Expense category id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={financeForm.expenseAmount} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseAmount: value }))} placeholder="Expense amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={financeForm.bankAccountId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, bankAccountId: value }))} placeholder="Bank account id for reconciliation" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <Text style={styles.helperText}>
               Voucher account {accountMap.get(Number(financeForm.voucherAccountId))?.name || "not selected"} • Expense category {expenseCategories.find((category) => String(category.id) === financeForm.expenseCategoryId)?.name || "not selected"} • Bank account {accountMap.get(Number(financeForm.bankAccountId))?.name || "not selected"}
             </Text>
@@ -1061,6 +1546,12 @@ export function SettingsScreen({
 
       {activeView === "system" ? (
         <>
+          <View style={styles.actionRow}>
+            <ActionButton label="New org" icon="business-outline" inverted onPress={() => setSystemForm((current) => ({ ...current, organizationName: "", organizationCode: "", organizationGstin: "" }))} />
+            <ActionButton label="New branch" icon="location-outline" inverted onPress={() => setSystemForm((current) => ({ ...current, branchCode: "", branchName: "" }))} />
+            <ActionButton label="New employee" icon="person-add-outline" inverted onPress={() => setSystemForm((current) => ({ ...current, employeeUsername: "", employeeFullName: "", employeeEmail: "", employeePhone: "" }))} />
+            <ActionButton label="Tax reg" icon="document-text-outline" inverted onPress={() => setSystemForm((current) => ({ ...current, taxName: "", taxGstin: "", taxStateCode: "27" }))} />
+          </View>
           <SectionHeader title="System actions" action="Organizations, subscription, tax" />
           <GlassCard style={styles.formCard}>
             <SearchableSelect
@@ -1078,14 +1569,26 @@ export function SettingsScreen({
             <TextInput value={systemForm.branchName} onChangeText={(value) => setSystemForm((current) => ({ ...current, branchName: value }))} placeholder="New branch name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.taxName} onChangeText={(value) => setSystemForm((current) => ({ ...current, taxName: value }))} placeholder="Tax registration name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.taxGstin} onChangeText={(value) => setSystemForm((current) => ({ ...current, taxGstin: value }))} placeholder="Tax GSTIN" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={systemForm.taxStateCode} onChangeText={(value) => setSystemForm((current) => ({ ...current, taxStateCode: value }))} placeholder="Tax state code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Tax state code"
+              placeholder="Select tax state code"
+              selectedLabel={STATE_CODE_OPTIONS.find((option) => option.id === systemForm.taxStateCode)?.label}
+              options={STATE_CODE_OPTIONS}
+              onSelect={(id) => setSystemForm((current) => ({ ...current, taxStateCode: id }))}
+            />
             <TextInput value={systemForm.thresholdAmount} onChangeText={(value) => setSystemForm((current) => ({ ...current, thresholdAmount: value }))} placeholder="GST threshold amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={systemForm.employeeUsername} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeUsername: value }))} placeholder="Employee username" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeePassword} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeePassword: value }))} placeholder="Employee password" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeeFullName} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeFullName: value }))} placeholder="Employee full name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeeEmail} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeEmail: value }))} placeholder="Employee email" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeePhone} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeePhone: value }))} placeholder="Employee phone" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={systemForm.employeeRoleCode} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeRoleCode: value }))} placeholder="Employee role code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Employee role"
+              placeholder="Select employee role"
+              selectedLabel={EMPLOYEE_ROLE_OPTIONS.find((option) => option.id === systemForm.employeeRoleCode)?.label}
+              options={EMPLOYEE_ROLE_OPTIONS}
+              onSelect={(id) => setSystemForm((current) => ({ ...current, employeeRoleCode: id }))}
+            />
             <View style={styles.quickPickWrap}>
               {branches.slice(0, 6).map((branch) => {
                 const active = systemForm.employeeDefaultBranchId === String(branch.id);
@@ -1096,7 +1599,6 @@ export function SettingsScreen({
                 );
               })}
             </View>
-            <TextInput value={systemForm.employeeDefaultBranchId} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeDefaultBranchId: value }))} placeholder="Employee default branch id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <ActionButton label="Submit system updates" icon="settings" onPress={handleCreateSystemRecords} />
           </GlassCard>
           <View style={styles.cardStack}>
@@ -1111,16 +1613,16 @@ export function SettingsScreen({
               <Text style={styles.entityMeta}>{thresholdStatus?.alertLevel || "-"} • {thresholdStatus?.message || "-"}</Text>
             </GlassCard>
           </View>
-          <SectionHeader title="Organizations" action={`${organizations.length} records`} />
-          <View style={styles.list}>{organizations.map((item) => <DocCard key={item.id} title={item.name || item.code || `ORG ${item.id}`} subtitle={`${item.code || "-"} • GST ${item.gstin || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
-          <SectionHeader title="Branches" action={`${branches.length} records`} />
-          <View style={styles.list}>{branches.map((item) => <DocCard key={item.id} title={item.name || item.code || `BR ${item.id}`} subtitle={`${item.code || "-"} • ${item.city || item.state || "Branch"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
-          <SectionHeader title="Employees" action={`${employees.length} records`} />
-          <View style={styles.list}>{employees.map((item) => <DocCard key={item.id} title={item.fullName || item.username || `EMP ${item.id}`} subtitle={`${item.username || "-"} • ${item.roleCode || "-"} • ${branchMap.get(item.defaultBranchId ?? 0)?.name || `${item.branchAccess?.length ?? 0} branches`}`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
-          <SectionHeader title="Tax registrations" action={`${taxRegistrations.length} records`} />
-          <View style={styles.list}>{taxRegistrations.map((item) => <DocCard key={item.id} title={item.registrationName || `REG ${item.id}`} subtitle={`${item.registrationStateCode || "-"} • ${item.gstin || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
-          <SectionHeader title="Users" action={`${users.length} records`} />
-          <View style={styles.list}>{users.map((item) => <DocCard key={item.id} title={item.username || `USER ${item.id}`} subtitle={`${item.email || "-"} • ${(item.roles || []).join(", ")}`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Organizations" action={`${(organizations || []).length} records`} />
+          <View style={styles.list}>{(organizations || []).map((item) => <DocCard key={item.id} title={item.name || item.code || `ORG ${item.id}`} subtitle={`${item.code || "-"} • GST ${item.gstin || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Branches" action={`${(branches || []).length} records`} />
+          <View style={styles.list}>{(branches || []).map((item) => <DocCard key={item.id} title={item.name || item.code || `BR ${item.id}`} subtitle={`${item.code || "-"} • ${item.city || item.state || "Branch"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Employees" action={`${(employees || []).length} records`} />
+          <View style={styles.list}>{(employees || []).map((item) => <DocCard key={item.id} title={item.fullName || item.username || `EMP ${item.id}`} subtitle={`${item.username || "-"} • ${item.roleCode || "-"} • ${branchMap.get(item.defaultBranchId ?? 0)?.name || `${(item.branchAccess || []).length} branches`}`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Tax registrations" action={`${(taxRegistrations || []).length} records`} />
+          <View style={styles.list}>{(taxRegistrations || []).map((item) => <DocCard key={item.id} title={item.registrationName || `REG ${item.id}`} subtitle={`${item.registrationStateCode || "-"} • ${item.gstin || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Users" action={`${(users || []).length} records`} />
+          <View style={styles.list}>{(users || []).map((item) => <DocCard key={item.id} title={item.username || `USER ${item.id}`} subtitle={`${item.email || "-"} • ${((item.roles || [])).join(", ")}`} amount={0} status={item.active ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
         </>
       ) : null}
 
@@ -1135,12 +1637,42 @@ export function SettingsScreen({
             <TextInput value={platformForm.smsMessage} onChangeText={(value) => setPlatformForm((current) => ({ ...current, smsMessage: value }))} placeholder="SMS message" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.templateCode} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateCode: value }))} placeholder="Template code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.templateName} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateName: value }))} placeholder="Template name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.templateType} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateType: value }))} placeholder="Template type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.templateChannel} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateChannel: value }))} placeholder="Template channel" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Template type"
+              placeholder="Select template type"
+              selectedLabel={TEMPLATE_TYPE_OPTIONS.find((option) => option.id === platformForm.templateType)?.label}
+              options={TEMPLATE_TYPE_OPTIONS}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, templateType: id }))}
+            />
+            <SearchableSelect
+              label="Template channel"
+              placeholder="Select template channel"
+              selectedLabel={TEMPLATE_CHANNEL_OPTIONS.find((option) => option.id === platformForm.templateChannel)?.label}
+              options={TEMPLATE_CHANNEL_OPTIONS}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, templateChannel: id }))}
+            />
             <TextInput value={platformForm.scheduleName} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleName: value }))} placeholder="Schedule name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleReportType} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleReportType: value }))} placeholder="Schedule report type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleFormat} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleFormat: value }))} placeholder="Schedule format" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleFrequency} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleFrequency: value }))} placeholder="Schedule frequency" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Schedule report type"
+              placeholder="Select report type"
+              selectedLabel={SCHEDULE_REPORT_TYPE_OPTIONS.find((option) => option.id === platformForm.scheduleReportType)?.label}
+              options={SCHEDULE_REPORT_TYPE_OPTIONS}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleReportType: id }))}
+            />
+            <SearchableSelect
+              label="Schedule format"
+              placeholder="Select report format"
+              selectedLabel={SCHEDULE_FORMAT_OPTIONS.find((option) => option.id === platformForm.scheduleFormat)?.label}
+              options={SCHEDULE_FORMAT_OPTIONS}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleFormat: id }))}
+            />
+            <SearchableSelect
+              label="Schedule frequency"
+              placeholder="Select schedule frequency"
+              selectedLabel={SCHEDULE_FREQUENCY_OPTIONS.find((option) => option.id === platformForm.scheduleFrequency)?.label}
+              options={SCHEDULE_FREQUENCY_OPTIONS}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleFrequency: id }))}
+            />
             <TextInput value={platformForm.scheduleCron} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleCron: value }))} placeholder="Cron expression" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.scheduleRecipients} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleRecipients: value }))} placeholder="Schedule recipients" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <ActionButton label="Submit platform actions" icon="rocket" onPress={handlePlatformActions} />
@@ -1152,12 +1684,12 @@ export function SettingsScreen({
               <Text style={styles.entityMeta}>{health?.timestamp || "-"}</Text>
             </GlassCard>
           </View>
-          <SectionHeader title="Templates" action={`${templates.length} records`} />
-          <View style={styles.list}>{templates.slice(0, 8).map((item) => <DocCard key={item.id} title={item.name || item.templateCode || `TPL ${item.id}`} subtitle={`${item.templateCode || "-"} • ${item.channel || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
-          <SectionHeader title="Recent notification sends" action={`${notifications.length} records`} />
-          <View style={styles.list}>{notifications.map((item, index) => <DocCard key={`${item.notificationId || item.recipient}-${index}`} title={item.title || item.notificationId || "Notification"} subtitle={`${item.channel || "-"} • ${item.recipient || "-"}`} amount={0} status={item.status || "SENT"} hideAmount />)}</View>
-          <SectionHeader title="Report schedules" action={`${schedules.length} records`} />
-          <View style={styles.list}>{schedules.slice(0, 8).map((item) => <DocCard key={item.id} title={item.scheduleName || `SCH ${item.id}`} subtitle={`${item.reportType || "-"} • next ${item.nextRunDate || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Templates" action={`${(templates || []).length} records`} />
+          <View style={styles.list}>{(templates || []).slice(0, 8).map((item) => <DocCard key={item.id} title={item.name || item.templateCode || `TPL ${item.id}`} subtitle={`${item.templateCode || "-"} • ${item.channel || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
+          <SectionHeader title="Recent notification sends" action={`${(notifications || []).length} records`} />
+          <View style={styles.list}>{(notifications || []).map((item, index) => <DocCard key={`${item.notificationId || item.recipient}-${index}`} title={item.title || item.notificationId || "Notification"} subtitle={`${item.channel || "-"} • ${item.recipient || "-"}`} amount={0} status={item.status || "SENT"} hideAmount />)}</View>
+          <SectionHeader title="Report schedules" action={`${(schedules || []).length} records`} />
+          <View style={styles.list}>{(schedules || []).slice(0, 8).map((item) => <DocCard key={item.id} title={item.scheduleName || `SCH ${item.id}`} subtitle={`${item.reportType || "-"} • next ${item.nextRunDate || "-"}`} amount={0} status={item.isActive ? "ACTIVE" : "INACTIVE"} hideAmount />)}</View>
         </>
       ) : null}
     </View>
@@ -1180,7 +1712,7 @@ function PurchaseDetail({
       <Text style={styles.entityTitle}>{title}</Text>
       {lines.map((line, index) => (
         <Text key={`${title}-${index}`} style={styles.entityMeta}>
-          {productMap.get(line.productId)?.name || `Product ${line.productId}`} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitValue ?? 0)}
+          {productMap.get(line.productId)?.name || "Unknown product"} {productMap.get(line.productId)?.sku ? `(${productMap.get(line.productId)?.sku})` : ""} • Qty {line.quantity} • {formatCurrency(line.lineAmount ?? line.unitValue ?? 0)}
         </Text>
       ))}
       <Text style={styles.entityValue}>{formatCurrency(total)}</Text>
@@ -1223,6 +1755,10 @@ const styles = StyleSheet.create({
   wrap: { gap: 20 },
   heading: { color: theme.colors.textPrimary, fontSize: 24, fontWeight: "800" },
   subheading: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600", marginTop: 6 },
+  actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
+  sheetTriggerRow: { marginTop: theme.spacing.sm, marginBottom: theme.spacing.sm },
+  summaryRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: theme.spacing.sm },
+  summaryHint: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600", flex: 1, lineHeight: 18 },
   segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   segment: { backgroundColor: theme.colors.surfaceMuted, borderRadius: theme.radius.pill, paddingHorizontal: 14, paddingVertical: 10 },
   segmentActive: { backgroundColor: theme.colors.accent },

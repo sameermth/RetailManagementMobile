@@ -9,6 +9,11 @@ export type AppModuleKey =
   | "purchases"
   | "inventory"
   | "people"
+  | "banking"
+  | "accountant"
   | "finance"
   | "reports"
-  | "system";
+  | "documents"
+  | "system"
+  | "platform"
+  | "more";

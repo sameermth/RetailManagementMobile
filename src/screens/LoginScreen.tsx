@@ -16,6 +16,8 @@ export function LoginScreen() {
     setLoading(true);
     try {
       await signIn();
+    } catch {
+      // signIn already surfaces errors in context
     } finally {
       setLoading(false);
     }

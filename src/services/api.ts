@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import { getDeviceHeaders } from "./deviceHeaders";
 
 type RequestOptions = {
   baseUrl: string;
@@ -7,6 +8,7 @@ type RequestOptions = {
   path: string;
   query?: Record<string, string | number | boolean | null | undefined>;
   body?: unknown;
+  headers?: Record<string, string>;
 };
 
 type ErpApiResponse<T> = {
@@ -15,6 +17,27 @@ type ErpApiResponse<T> = {
   message?: string | null;
   timestamp?: string;
 };
+
+type ErrorPayload = {
+  message?: string;
+  error?: string;
+  code?: string;
+};
+
+type RetryTokenResolver = (context: { baseUrl: string; token?: string }) => Promise<string | null>;
+
+let retryTokenResolver: RetryTokenResolver | null = null;
+
+export class UnauthorizedError extends Error {
+  constructor(message?: string) {
+    super(message ?? "Unauthorized");
+    this.name = "UnauthorizedError";
+  }
+}
+
+export function setRetryTokenResolver(resolver: RetryTokenResolver | null) {
+  retryTokenResolver = resolver;
+}
 
 export function normalizeBaseUrl(input: string) {
   const trimmed = input.trim();
@@ -39,31 +62,73 @@ function buildUrl(path: string, query?: RequestOptions["query"]) {
   return queryString ? `${path}?${queryString}` : path;
 }
 
-async function request<T>({ baseUrl, token, method = "GET", path, query, body }: RequestOptions): Promise<T> {
+function isAuthFailure(status: number, payload?: ErrorPayload) {
+  if (status === 401) {
+    return true;
+  }
+  if (status !== 403) {
+    return false;
+  }
+  const text = `${payload?.message ?? ""} ${payload?.error ?? ""} ${payload?.code ?? ""}`.toLowerCase();
+  return (
+    text.includes("token") ||
+    text.includes("jwt") ||
+    text.includes("expired") ||
+    text.includes("unauthorized") ||
+    text.includes("not authenticated") ||
+    text.includes("invalid credentials")
+  );
+}
+
+async function request<T>({ baseUrl, token, method = "GET", path, query, body, headers }: RequestOptions): Promise<T> {
   const url = `${normalizeBaseUrl(baseUrl)}${buildUrl(path, query)}`;
-  const response = await fetch(url, {
+  const deviceHeaders = await getDeviceHeaders();
+  const requestBody = body ? JSON.stringify(body) : undefined;
+
+  const execute = async (activeToken?: string) =>
+    fetch(url, {
     method,
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(requestBody ? { "Content-Type": "application/json" } : {}),
+      ...deviceHeaders,
+      ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+      ...headers,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: requestBody,
   });
 
-  if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
+  let response = await execute(token);
+
+  if (!response.ok && retryTokenResolver && token) {
+    let payload: ErrorPayload | undefined;
     try {
-      const payload = (await response.json()) as { message?: string; error?: string };
-      message = payload.message ?? payload.error ?? message;
+      payload = (await response.json()) as ErrorPayload;
     } catch {}
-    throw new Error(message);
+    if (isAuthFailure(response.status, payload)) {
+      const nextToken = await retryTokenResolver({ baseUrl: normalizeBaseUrl(baseUrl), token });
+      if (nextToken && nextToken !== token) {
+        response = await execute(nextToken);
+      }
+    }
   }
 
-  if (response.status === 204) {
-    return undefined as T;
-  }
+  if (!response.ok) {
+      let message = `${response.status} ${response.statusText}`;
+      let payload: ErrorPayload | undefined;
+      try {
+        payload = (await response.json()) as ErrorPayload;
+        message = payload.message ?? payload.error ?? message;
+      } catch {}
+      if (isAuthFailure(response.status, payload)) {
+        throw new UnauthorizedError(message);
+      }
+      throw new Error(message);
+    }
 
+    if (response.status === 204) {
+      return undefined as T;
+    }
   return (await response.json()) as T;
 }
 

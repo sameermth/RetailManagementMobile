@@ -257,6 +257,58 @@ export function SearchableSelect({
   );
 }
 
+export function ActionSheet({
+  label,
+  visible,
+  actions,
+  onClose,
+}: {
+  label: string;
+  visible: boolean;
+  actions: Array<{
+    id: string;
+    label: string;
+    icon?: keyof typeof Ionicons.glyphMap;
+    description?: string;
+    onPress: () => void;
+  }>;
+  onClose: () => void;
+}) {
+  return (
+    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <Pressable style={styles.modalDismissArea} onPress={onClose} />
+        <View style={[styles.modalSheet, styles.actionSheet]}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>{label}</Text>
+          </View>
+          <ScrollView style={styles.modalScroll} contentContainerStyle={styles.actionSheetContent} showsVerticalScrollIndicator={false}>
+            {actions.map((action) => (
+              <Pressable
+                key={action.id}
+                onPress={() => {
+                  action.onPress();
+                  onClose();
+                }}
+                style={styles.actionSheetItem}
+              >
+                <View style={styles.actionSheetIcon}>
+                  {action.icon ? <Ionicons name={action.icon} size={18} color={theme.colors.accent} /> : null}
+                </View>
+                <View style={styles.actionSheetText}> 
+                  <Text style={styles.actionSheetLabel}>{action.label}</Text>
+                  {action.description ? <Text style={styles.actionSheetMeta}>{action.description}</Text> : null}
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   titleBlock: {
     gap: 10,
@@ -477,5 +529,42 @@ const styles = StyleSheet.create({
   },
   modalScroll: {
     marginTop: theme.spacing.sm,
+  },
+  actionSheet: {
+    maxHeight: "60%",
+  },
+  actionSheetContent: {
+    gap: theme.spacing.sm,
+    paddingBottom: theme.spacing.xl,
+  },
+  actionSheetItem: {
+    alignItems: "center",
+    backgroundColor: theme.colors.surfaceMuted,
+    borderRadius: theme.radius.md,
+    flexDirection: "row",
+    gap: 12,
+    padding: theme.spacing.md,
+  },
+  actionSheetIcon: {
+    alignItems: "center",
+    backgroundColor: theme.colors.accentSoft,
+    borderRadius: 14,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  actionSheetText: {
+    flex: 1,
+  },
+  actionSheetLabel: {
+    color: theme.colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  actionSheetMeta: {
+    color: theme.colors.textSecondary,
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 2,
   },
 });

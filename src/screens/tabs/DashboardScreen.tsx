@@ -2,10 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { GlassCard, GradientCard, MetricCard, Pill, SectionHeader } from "../../components/Ui";
+import { ActionButton, GlassCard, GradientCard, MetricCard, Pill, SectionHeader } from "../../components/Ui";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
 import { AppModuleKey } from "../../types";
+import { hasPlatformAdminAccess } from "../../utils/access";
 import { formatCompactCurrency, formatCurrency } from "../../utils/formatters";
 
 export function DashboardScreen({
@@ -14,6 +15,7 @@ export function DashboardScreen({
   onNavigate: (tab: AppModuleKey) => void;
 }) {
   const { data, error, refreshing, session } = useAppData();
+  const showPlatformModule = hasPlatformAdminAccess(session);
   const summary = data.dashboardSummary;
   const dueSummary = data.dueSummary;
 
@@ -38,14 +40,20 @@ export function DashboardScreen({
     },
   ];
 
-  const shortcuts = [
+  const shortcuts: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap; target: AppModuleKey }[] = [
     { id: "sales", label: "Sales", icon: "flash", target: "sales" as const },
     { id: "purchases", label: "Purchases", icon: "bag", target: "purchases" as const },
     { id: "inventory", label: "Inventory", icon: "cube", target: "inventory" as const },
     { id: "people", label: "People", icon: "people", target: "people" as const },
-    { id: "finance", label: "Finance", icon: "wallet", target: "finance" as const },
+    { id: "banking", label: "Banking", icon: "card-outline", target: "banking" as const },
+    { id: "accountant", label: "Accountant", icon: "book-outline", target: "accountant" as const },
+    { id: "reports", label: "Reports", icon: "bar-chart-outline", target: "reports" as const },
+    { id: "documents", label: "Documents", icon: "folder-open-outline", target: "documents" as const },
     { id: "system", label: "System", icon: "settings", target: "system" as const },
   ];
+  if (showPlatformModule) {
+    shortcuts.push({ id: "platform", label: "Platform", icon: "shield-checkmark-outline", target: "platform" as const });
+  }
 
   return (
     <View style={styles.wrap}>
@@ -55,7 +63,7 @@ export function DashboardScreen({
           <Text style={styles.business}>{session?.organizationName ?? "Retail workspace"}</Text>
         </View>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{session?.username.slice(0, 2).toUpperCase() ?? "RM"}</Text>
+          <Text style={styles.avatarText}>{session?.username?.slice(0, 2).toUpperCase() ?? "RM"}</Text>
         </View>
       </View>
 
@@ -63,11 +71,26 @@ export function DashboardScreen({
         <Text style={styles.heroEyebrow}>Workspace Overview</Text>
         <Text style={styles.heroTitle}>The mobile shell now follows the live backend domain flow.</Text>
         <Text style={styles.heroText}>
-          Sales, purchases, inventory, people, finance, reports, and system actions are grouped around the same backend modules used by the web app.
+          Sales, purchases, inventory, people, banking, accountant, reports, documents, and system actions follow the same web app module structure.
         </Text>
+        <View style={styles.heroActionRow}>
+          <ActionButton label="Open reports" icon="bar-chart-outline" inverted onPress={() => onNavigate("reports")} />
+          <ActionButton label="Go to sales" icon="receipt-outline" inverted onPress={() => onNavigate("sales")} />
+        </View>
         <View style={styles.heroPills}>
           <Pill label={`${session?.organizationCode ?? "ORG"} active`} tone="blue" />
           <Pill label={refreshing ? "Refreshing" : "Live API"} tone="green" />
+        </View>
+        <View style={styles.quickActionRow}>
+          {shortcuts.slice(0, 4).map((shortcut) => (
+            <ActionButton
+              key={shortcut.id}
+              label={shortcut.label}
+              icon={shortcut.icon as keyof typeof Ionicons.glyphMap}
+              inverted
+              onPress={() => onNavigate(shortcut.target)}
+            />
+          ))}
         </View>
       </GradientCard>
 
@@ -142,8 +165,10 @@ const styles = StyleSheet.create({
   heroEyebrow: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "800", letterSpacing: 1.1, textTransform: "uppercase" },
   heroTitle: { color: theme.colors.textPrimary, fontSize: 28, lineHeight: 32, fontWeight: "800" },
   heroText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  heroActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: theme.spacing.sm },
   heroPills: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   horizontal: { marginHorizontal: -theme.spacing.lg, paddingLeft: theme.spacing.lg },
+  quickActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: theme.spacing.sm },
   shortcuts: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   shortcut: { alignItems: "center", backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderRadius: theme.radius.md, borderWidth: 1, flexDirection: "row", gap: 10, minWidth: "47%", padding: 16 },
   shortcutIcon: { alignItems: "center", backgroundColor: theme.colors.accentSoft, borderRadius: 14, height: 36, justifyContent: "center", width: 36 },
