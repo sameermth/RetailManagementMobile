@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Platform } from "react-native";
 
 import {
   AppData,
@@ -35,6 +36,7 @@ import {
 import { authRequest, dashboardRequest, detectDefaultBaseUrl, erpRequest, normalizeBaseUrl } from "../services/api";
 
 const STORAGE_KEY = "retail-management-backend-session";
+const DEVICE_ID_STORAGE_KEY = "retail-management-backend-device-id";
 
 type AppDataContextValue = {
   data: AppData;
@@ -45,6 +47,8 @@ type AppDataContextValue = {
   error: string | null;
   updateSessionDraft: (patch: Partial<SessionDraft>) => Promise<void>;
   signIn: () => Promise<void>;
+  switchOrganization: (organizationId: number) => Promise<void>;
+  organizationSelectionRequired: boolean;
   signOut: () => Promise<void>;
   refreshAll: () => Promise<void>;
   createProduct: (payload: Record<string, unknown>) => Promise<void>;
@@ -105,6 +109,10 @@ export function AppDataProvider({ children }: PropsWithChildren) {
   const [hydrated, setHydrated] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [organizationSelectionRequired, setOrganizationSelectionRequired] = useState(false);
+  const sessionRef = useRef<SessionState | null>(null);
+  const refreshPromiseRef = useRef<Promise<SessionState> | null>(null);
+  const deviceIdRef = useRef(`mobile-${Platform.OS}`);
 
   const persistState = useCallback(async (nextSession: SessionState | null, nextDraft: SessionDraft) => {
     const payload: StoredState = { session: nextSession, sessionDraft: nextDraft };
@@ -145,6 +153,32 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    let active = true;
+    async function hydrateDeviceId() {
+      try {
+        const stored = await AsyncStorage.getItem(DEVICE_ID_STORAGE_KEY);
+        if (stored && active) {
+          deviceIdRef.current = stored;
+          return;
+        }
+        const next = `mobile-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        deviceIdRef.current = next;
+        await AsyncStorage.setItem(DEVICE_ID_STORAGE_KEY, next);
+      } catch {
+        // Keep fallback device id if secure persistence fails.
+      }
+    }
+    hydrateDeviceId();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const getSession = useCallback(() => {
     if (!session) {
       throw new Error("Please sign in first.");
@@ -152,108 +186,99 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     return session;
   }, [session]);
 
-  const refreshAll = useCallback(async () => {
-    const activeSession = getSession();
-    setRefreshing(true);
-    setError(null);
+  function getDeviceHeaders() {
+    return {
+      "User-Agent": `RetailManagementMobile/${Platform.OS}`,
+      "X-Device-Id": deviceIdRef.current,
+      "X-Device-Name": `${Platform.OS}-${String(Platform.Version)}`,
+    };
+  }
 
+  function isAuthError(nextError: unknown) {
+    if (typeof nextError !== "object" || nextError === null) {
+      return false;
+    }
+    const status = (nextError as { status?: number }).status;
+    return status === 401 || status === 403;
+  }
+
+  async function refreshSession(activeSession: SessionState) {
+    if (!activeSession.refreshToken) {
+      throw new Error("Your session has expired. Please sign in again.");
+    }
+    const response = await authRequest<{
+      token: string;
+      refreshToken?: string | null;
+      type?: string;
+      id?: number;
+      organizationId?: number | null;
+      organizationCode?: string | null;
+      organizationName?: string | null;
+      username?: string;
+      email?: string;
+      roles?: string[];
+      permissions?: string[];
+      memberships?: SessionState["memberships"];
+    }>({
+      baseUrl: activeSession.baseUrl,
+      method: "POST",
+      path: "/api/auth/refresh",
+      body: {
+        refreshToken: activeSession.refreshToken,
+      },
+      headers: getDeviceHeaders(),
+    });
+    const nextSession: SessionState = {
+      ...activeSession,
+      token: response.token,
+      refreshToken: response.refreshToken ?? activeSession.refreshToken ?? null,
+      type: response.type ?? activeSession.type,
+      userId: response.id ?? activeSession.userId,
+      username: response.username ?? activeSession.username,
+      email: response.email ?? activeSession.email,
+      organizationId: response.organizationId ?? activeSession.organizationId,
+      organizationCode: response.organizationCode ?? activeSession.organizationCode,
+      organizationName: response.organizationName ?? activeSession.organizationName,
+      roles: response.roles ?? activeSession.roles,
+      permissions: response.permissions ?? activeSession.permissions,
+      memberships: response.memberships ?? activeSession.memberships,
+    };
+    const nextDraft = {
+      ...sessionDraft,
+      organizationId: String(nextSession.organizationId),
+    };
+    setSession(nextSession);
+    setSessionDraft(nextDraft);
+    await persistState(nextSession, nextDraft);
+    return nextSession;
+  }
+
+  async function withAutoRefresh<T>(operation: (activeSession: SessionState) => Promise<T>): Promise<T> {
+    const activeSession = sessionRef.current ?? getSession();
     try {
-      const baseOptions = { baseUrl: activeSession.baseUrl, token: activeSession.token };
-      const [dashboardSummary, dueSummary, topProducts, lowStockAlerts, recentActivities, products, productCatalog, customers, suppliers, quotes, orders, invoices, receipts, purchaseOrders, purchaseReceipts, supplierPayments] =
-        await Promise.all([
-          dashboardRequest<DashboardSummary>({ ...baseOptions, path: "/api/dashboard/summary" }),
-          dashboardRequest<DueSummary>({ ...baseOptions, path: "/api/dashboard/dues/summary" }),
-          dashboardRequest<TopProduct[]>({ ...baseOptions, path: "/api/dashboard/products/top", query: { limit: 5 } }),
-          dashboardRequest<LowStockAlert[]>({ ...baseOptions, path: "/api/dashboard/inventory/low-stock" }),
-          dashboardRequest<RecentActivity[]>({ ...baseOptions, path: "/api/dashboard/activities/recent", query: { limit: 8 } }),
-          erpRequest<StoreProduct[]>({
-            ...baseOptions,
-            path: "/api/erp/products",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<ProductCatalogItem[]>({
-            ...baseOptions,
-            path: "/api/erp/products/catalog",
-          }),
-          erpRequest<Customer[]>({
-            ...baseOptions,
-            path: "/api/erp/customers",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<Supplier[]>({
-            ...baseOptions,
-            path: "/api/erp/suppliers",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<SalesQuoteSummary[]>({
-            ...baseOptions,
-            path: "/api/erp/sales/quotes",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<SalesOrderSummary[]>({
-            ...baseOptions,
-            path: "/api/erp/sales/orders",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<SalesInvoiceSummary[]>({
-            ...baseOptions,
-            path: "/api/erp/sales/invoices",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<CustomerReceipt[]>({
-            ...baseOptions,
-            path: "/api/erp/sales/receipts",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<PurchaseOrderSummary[]>({
-            ...baseOptions,
-            path: "/api/erp/purchases/orders",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<PurchaseReceiptSummary[]>({
-            ...baseOptions,
-            path: "/api/erp/purchases/receipts",
-            query: { organizationId: activeSession.organizationId },
-          }),
-          erpRequest<SupplierPayment[]>({
-            ...baseOptions,
-            path: "/api/erp/purchases/supplier-payments",
-            query: { organizationId: activeSession.organizationId },
-          }),
-        ]);
-
-      setData({
-        dashboardSummary,
-        dueSummary,
-        topProducts,
-        lowStockAlerts,
-        recentActivities,
-        products,
-        productCatalog,
-        customers,
-        suppliers,
-        quotes,
-        orders,
-        invoices,
-        receipts,
-        purchaseOrders,
-        purchaseReceipts,
-        supplierPayments,
-      });
+      return await operation(activeSession);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Unable to refresh backend data.");
-      throw nextError;
-    } finally {
-      setRefreshing(false);
+      if (!isAuthError(nextError)) {
+        throw nextError;
+      }
+      if (!activeSession.refreshToken) {
+        await signOut();
+        throw nextError;
+      }
+      if (!refreshPromiseRef.current) {
+        refreshPromiseRef.current = refreshSession(activeSession).finally(() => {
+          refreshPromiseRef.current = null;
+        });
+      }
+      try {
+        const refreshedSession = await refreshPromiseRef.current;
+        return operation(refreshedSession);
+      } catch (refreshError) {
+        await signOut();
+        throw refreshError;
+      }
     }
-  }, [getSession]);
-
-  useEffect(() => {
-    if (!hydrated || !session?.token) {
-      return;
-    }
-    refreshAll().catch(() => undefined);
-  }, [hydrated, refreshAll, session?.token]);
+  }
 
   async function updateSessionDraft(patch: Partial<SessionDraft>) {
     const nextDraft = {
@@ -272,6 +297,7 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     const organizationId = sessionDraft.organizationId.trim() ? Number(sessionDraft.organizationId) : undefined;
     const loginResponse = await authRequest<{
       token: string;
+      refreshToken?: string | null;
       type?: string;
       id: number;
       organizationId?: number | null;
@@ -290,7 +316,9 @@ export function AppDataProvider({ children }: PropsWithChildren) {
         username: sessionDraft.username.trim(),
         password: sessionDraft.password,
         organizationId,
+        clientType: "MOBILE",
       },
+      headers: getDeviceHeaders(),
     });
 
     const membership =
@@ -301,6 +329,7 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     const nextSession: SessionState = {
       baseUrl,
       token: loginResponse.token,
+      refreshToken: loginResponse.refreshToken ?? null,
       type: loginResponse.type ?? "Bearer",
       userId: loginResponse.id,
       username: loginResponse.username,
@@ -316,6 +345,7 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     };
 
     setSession(nextSession);
+    setOrganizationSelectionRequired(!organizationId && (loginResponse.memberships?.length ?? 0) > 1);
     const nextDraft = {
       ...sessionDraft,
       baseUrl,
@@ -326,77 +356,164 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     await refreshAllWith(nextSession);
   }
 
+  async function switchOrganization(organizationId: number) {
+    const activeSession = getSession();
+    const response = await authRequest<{
+      token: string;
+      refreshToken?: string | null;
+      type?: string;
+      id: number;
+      organizationId?: number | null;
+      organizationCode?: string | null;
+      organizationName?: string | null;
+      username: string;
+      email: string;
+      roles?: string[];
+      permissions?: string[];
+      memberships?: SessionState["memberships"];
+    }>({
+      baseUrl: activeSession.baseUrl,
+      token: activeSession.token,
+      method: "POST",
+      path: "/api/auth/switch-organization",
+      body: { organizationId },
+    });
+
+    const membership =
+      response.memberships?.find((entry) => entry.organizationId === (response.organizationId ?? organizationId)) ??
+      response.memberships?.find((entry) => entry.organizationId === organizationId) ??
+      activeSession.memberships.find((entry) => entry.organizationId === organizationId) ??
+      null;
+
+    const nextSession: SessionState = {
+      ...activeSession,
+      token: response.token,
+      refreshToken: response.refreshToken ?? activeSession.refreshToken ?? null,
+      type: response.type ?? activeSession.type,
+      userId: response.id ?? activeSession.userId,
+      username: response.username ?? activeSession.username,
+      email: response.email ?? activeSession.email,
+      organizationId: response.organizationId ?? organizationId,
+      organizationCode: response.organizationCode ?? membership?.organizationCode ?? activeSession.organizationCode,
+      organizationName: response.organizationName ?? membership?.organizationName ?? activeSession.organizationName,
+      branchId: membership?.defaultBranchId ?? activeSession.branchId,
+      roles: response.roles ?? activeSession.roles,
+      permissions: response.permissions ?? activeSession.permissions,
+      memberships: response.memberships ?? activeSession.memberships,
+    };
+
+    setSession(nextSession);
+    setOrganizationSelectionRequired(false);
+    const nextDraft = {
+      ...sessionDraft,
+      organizationId: String(nextSession.organizationId),
+    };
+    setSessionDraft(nextDraft);
+    await persistState(nextSession, nextDraft);
+    await refreshAllWith(nextSession);
+  }
+
   const refreshAllWith = useCallback(
-    async (activeSession: SessionState) => {
-      setRefreshing(true);
-      setError(null);
-      try {
-        const baseOptions = { baseUrl: activeSession.baseUrl, token: activeSession.token };
-        const [dashboardSummary, dueSummary, topProducts, lowStockAlerts, recentActivities, products, productCatalog, customers, suppliers, quotes, orders, invoices, receipts, purchaseOrders, purchaseReceipts, supplierPayments] =
-          await Promise.all([
-            dashboardRequest<DashboardSummary>({ ...baseOptions, path: "/api/dashboard/summary" }),
-            dashboardRequest<DueSummary>({ ...baseOptions, path: "/api/dashboard/dues/summary" }),
-            dashboardRequest<TopProduct[]>({ ...baseOptions, path: "/api/dashboard/products/top", query: { limit: 5 } }),
-            dashboardRequest<LowStockAlert[]>({ ...baseOptions, path: "/api/dashboard/inventory/low-stock" }),
-            dashboardRequest<RecentActivity[]>({ ...baseOptions, path: "/api/dashboard/activities/recent", query: { limit: 8 } }),
-            erpRequest<StoreProduct[]>({ ...baseOptions, path: "/api/erp/products", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<ProductCatalogItem[]>({ ...baseOptions, path: "/api/erp/products/catalog" }),
-            erpRequest<Customer[]>({ ...baseOptions, path: "/api/erp/customers", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<Supplier[]>({ ...baseOptions, path: "/api/erp/suppliers", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<SalesQuoteSummary[]>({ ...baseOptions, path: "/api/erp/sales/quotes", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<SalesOrderSummary[]>({ ...baseOptions, path: "/api/erp/sales/orders", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<SalesInvoiceSummary[]>({ ...baseOptions, path: "/api/erp/sales/invoices", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<CustomerReceipt[]>({ ...baseOptions, path: "/api/erp/sales/receipts", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<PurchaseOrderSummary[]>({ ...baseOptions, path: "/api/erp/purchases/orders", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<PurchaseReceiptSummary[]>({ ...baseOptions, path: "/api/erp/purchases/receipts", query: { organizationId: activeSession.organizationId } }),
-            erpRequest<SupplierPayment[]>({ ...baseOptions, path: "/api/erp/purchases/supplier-payments", query: { organizationId: activeSession.organizationId } }),
-          ]);
-        setData({
-          dashboardSummary,
-          dueSummary,
-          topProducts,
-          lowStockAlerts,
-          recentActivities,
-          products,
-          productCatalog,
-          customers,
-          suppliers,
-          quotes,
-          orders,
-          invoices,
-          receipts,
-          purchaseOrders,
-          purchaseReceipts,
-          supplierPayments,
-        });
-      } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Unable to refresh backend data.");
-        throw nextError;
-      } finally {
-        setRefreshing(false);
-      }
+    async (seedSession?: SessionState) => {
+      await withAutoRefresh(async (activeSession) => {
+        const effectiveSession = seedSession ?? activeSession;
+        setRefreshing(true);
+        setError(null);
+        try {
+          const baseOptions = { baseUrl: effectiveSession.baseUrl, token: effectiveSession.token };
+          const [dashboardSummary, dueSummary, topProducts, lowStockAlerts, recentActivities, products, productCatalog, customers, suppliers, quotes, orders, invoices, receipts, purchaseOrders, purchaseReceipts, supplierPayments] =
+            await Promise.all([
+              dashboardRequest<DashboardSummary>({ ...baseOptions, path: "/api/dashboard/summary" }),
+              dashboardRequest<DueSummary>({ ...baseOptions, path: "/api/dashboard/dues/summary" }),
+              dashboardRequest<TopProduct[]>({ ...baseOptions, path: "/api/dashboard/products/top", query: { limit: 5 } }),
+              dashboardRequest<LowStockAlert[]>({ ...baseOptions, path: "/api/dashboard/inventory/low-stock" }),
+              dashboardRequest<RecentActivity[]>({ ...baseOptions, path: "/api/dashboard/activities/recent", query: { limit: 8 } }),
+              erpRequest<StoreProduct[]>({ ...baseOptions, path: "/api/erp/products", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<ProductCatalogItem[]>({ ...baseOptions, path: "/api/erp/products/catalog" }),
+              erpRequest<Customer[]>({ ...baseOptions, path: "/api/erp/customers", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<Supplier[]>({ ...baseOptions, path: "/api/erp/suppliers", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<SalesQuoteSummary[]>({ ...baseOptions, path: "/api/erp/sales/quotes", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<SalesOrderSummary[]>({ ...baseOptions, path: "/api/erp/sales/orders", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<SalesInvoiceSummary[]>({ ...baseOptions, path: "/api/erp/sales/invoices", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<CustomerReceipt[]>({ ...baseOptions, path: "/api/erp/sales/receipts", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<PurchaseOrderSummary[]>({ ...baseOptions, path: "/api/erp/purchases/orders", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<PurchaseReceiptSummary[]>({ ...baseOptions, path: "/api/erp/purchases/receipts", query: { organizationId: effectiveSession.organizationId } }),
+              erpRequest<SupplierPayment[]>({ ...baseOptions, path: "/api/erp/purchases/supplier-payments", query: { organizationId: effectiveSession.organizationId } }),
+            ]);
+          setData({
+            dashboardSummary,
+            dueSummary,
+            topProducts,
+            lowStockAlerts,
+            recentActivities,
+            products,
+            productCatalog,
+            customers,
+            suppliers,
+            quotes,
+            orders,
+            invoices,
+            receipts,
+            purchaseOrders,
+            purchaseReceipts,
+            supplierPayments,
+          });
+        } catch (nextError) {
+          setError(nextError instanceof Error ? nextError.message : "Unable to refresh backend data.");
+          throw nextError;
+        } finally {
+          setRefreshing(false);
+        }
+      });
     },
-    [],
+    [getSession],
   );
 
+  const refreshAll = useCallback(async () => {
+    await refreshAllWith();
+  }, [refreshAllWith]);
+
+  useEffect(() => {
+    if (!hydrated || !session?.token) {
+      return;
+    }
+    refreshAll().catch(() => undefined);
+  }, [hydrated, refreshAll, session?.token]);
+
   async function signOut() {
+    const activeSession = sessionRef.current;
+    if (activeSession?.token) {
+      try {
+        await authRequest({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          method: "POST",
+          path: "/api/auth/logout",
+          body: activeSession.refreshToken ? { refreshToken: activeSession.refreshToken } : undefined,
+        });
+      } catch {
+        // Best effort logout; clear local session regardless.
+      }
+    }
     setSession(null);
+    setOrganizationSelectionRequired(false);
     setData(emptyData);
     await persistState(null, sessionDraft);
   }
 
   async function runMutation<T>(path: string, method: "POST" | "PUT", body: Record<string, unknown>, query?: Record<string, unknown>) {
-    const activeSession = getSession();
-    const result = await erpRequest<T>({
-      baseUrl: activeSession.baseUrl,
-      token: activeSession.token,
-      method,
-      path,
-      query: query as Record<string, string | number | boolean | null | undefined>,
-      body,
+    return withAutoRefresh(async (activeSession) => {
+      const result = await erpRequest<T>({
+        baseUrl: activeSession.baseUrl,
+        token: activeSession.token,
+        method,
+        path,
+        query: query as Record<string, string | number | boolean | null | undefined>,
+        body,
+      });
+      await refreshAllWith(activeSession);
+      return result;
     });
-    await refreshAllWith(activeSession);
-    return result;
   }
 
   async function createProduct(payload: Record<string, unknown>) {
@@ -665,28 +782,29 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     path: string,
     options?: { query?: Record<string, string | number | boolean | null | undefined>; kind?: "erp" | "dashboard" | "auth" },
   ) {
-    const activeSession = getSession();
-    if (options?.kind === "dashboard") {
-      return dashboardRequest<T>({
+    return withAutoRefresh(async (activeSession) => {
+      if (options?.kind === "dashboard") {
+        return dashboardRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          path,
+          query: options.query,
+        });
+      }
+      if (options?.kind === "auth") {
+        return authRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          path,
+          query: options.query,
+        });
+      }
+      return erpRequest<T>({
         baseUrl: activeSession.baseUrl,
         token: activeSession.token,
         path,
-        query: options.query,
+        query: options?.query,
       });
-    }
-    if (options?.kind === "auth") {
-      return authRequest<T>({
-        baseUrl: activeSession.baseUrl,
-        token: activeSession.token,
-        path,
-        query: options.query,
-      });
-    }
-    return erpRequest<T>({
-      baseUrl: activeSession.baseUrl,
-      token: activeSession.token,
-      path,
-      query: options?.query,
     });
   }
 
@@ -695,34 +813,35 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     body?: Record<string, unknown>,
     options?: { query?: Record<string, string | number | boolean | null | undefined>; kind?: "erp" | "dashboard" | "auth" },
   ) {
-    const activeSession = getSession();
-    if (options?.kind === "dashboard") {
-      return dashboardRequest<T>({
+    return withAutoRefresh(async (activeSession) => {
+      if (options?.kind === "dashboard") {
+        return dashboardRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          method: "POST",
+          path,
+          query: options.query,
+          body,
+        });
+      }
+      if (options?.kind === "auth") {
+        return authRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          method: "POST",
+          path,
+          query: options.query,
+          body,
+        });
+      }
+      return erpRequest<T>({
         baseUrl: activeSession.baseUrl,
         token: activeSession.token,
         method: "POST",
         path,
-        query: options.query,
+        query: options?.query,
         body,
       });
-    }
-    if (options?.kind === "auth") {
-      return authRequest<T>({
-        baseUrl: activeSession.baseUrl,
-        token: activeSession.token,
-        method: "POST",
-        path,
-        query: options.query,
-        body,
-      });
-    }
-    return erpRequest<T>({
-      baseUrl: activeSession.baseUrl,
-      token: activeSession.token,
-      method: "POST",
-      path,
-      query: options?.query,
-      body,
     });
   }
 
@@ -731,34 +850,35 @@ export function AppDataProvider({ children }: PropsWithChildren) {
     body?: Record<string, unknown>,
     options?: { query?: Record<string, string | number | boolean | null | undefined>; kind?: "erp" | "dashboard" | "auth" },
   ) {
-    const activeSession = getSession();
-    if (options?.kind === "dashboard") {
-      return dashboardRequest<T>({
+    return withAutoRefresh(async (activeSession) => {
+      if (options?.kind === "dashboard") {
+        return dashboardRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          method: "PUT",
+          path,
+          query: options.query,
+          body,
+        });
+      }
+      if (options?.kind === "auth") {
+        return authRequest<T>({
+          baseUrl: activeSession.baseUrl,
+          token: activeSession.token,
+          method: "PUT",
+          path,
+          query: options.query,
+          body,
+        });
+      }
+      return erpRequest<T>({
         baseUrl: activeSession.baseUrl,
         token: activeSession.token,
         method: "PUT",
         path,
-        query: options.query,
+        query: options?.query,
         body,
       });
-    }
-    if (options?.kind === "auth") {
-      return authRequest<T>({
-        baseUrl: activeSession.baseUrl,
-        token: activeSession.token,
-        method: "PUT",
-        path,
-        query: options.query,
-        body,
-      });
-    }
-    return erpRequest<T>({
-      baseUrl: activeSession.baseUrl,
-      token: activeSession.token,
-      method: "PUT",
-      path,
-      query: options?.query,
-      body,
     });
   }
 
@@ -772,6 +892,8 @@ export function AppDataProvider({ children }: PropsWithChildren) {
       error,
       updateSessionDraft,
       signIn,
+      switchOrganization,
+      organizationSelectionRequired,
       signOut,
       refreshAll,
       createProduct,
@@ -803,7 +925,7 @@ export function AppDataProvider({ children }: PropsWithChildren) {
       apiPost,
       apiPut,
     }),
-    [data, error, hydrated, refreshing, session, sessionDraft, refreshAll],
+    [data, error, hydrated, organizationSelectionRequired, refreshing, session, sessionDraft, refreshAll],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

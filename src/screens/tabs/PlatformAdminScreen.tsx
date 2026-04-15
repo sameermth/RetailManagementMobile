@@ -2,7 +2,7 @@ import React from "react";
 
 import { SettingsScreen } from "./SettingsScreen";
 
-export function FinanceScreen({
+export function PlatformAdminScreen({
   onDirtyChange,
   onRegisterBackHandler,
 }: {
@@ -13,10 +13,10 @@ export function FinanceScreen({
     <SettingsScreen
       onDirtyChange={onDirtyChange}
       onRegisterBackHandler={onRegisterBackHandler}
-      initialView="finance"
-      allowedViews={["finance"]}
-      title="Finance"
-      subtitle="Accounts, vouchers, expenses, and bank reconciliation flows shaped around the live finance endpoints."
+      initialView="platform"
+      allowedViews={["platform"]}
+      title="Platform Admin"
+      subtitle="Control panel for stores, subscriptions, notifications, health, and internal platform operations."
     />
   );
 }

@@ -6,6 +6,7 @@ import { GlassCard, GradientCard, MetricCard, Pill, SectionHeader } from "../../
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
 import { AppModuleKey } from "../../types";
+import { canAccessModule } from "../../utils/access";
 import { formatCompactCurrency, formatCurrency } from "../../utils/formatters";
 
 export function DashboardScreen({
@@ -38,14 +39,19 @@ export function DashboardScreen({
     },
   ];
 
-  const shortcuts = [
+  const shortcuts: { id: string; label: string; icon: keyof typeof Ionicons.glyphMap; target: AppModuleKey }[] = [
     { id: "sales", label: "Sales", icon: "flash", target: "sales" as const },
     { id: "purchases", label: "Purchases", icon: "bag", target: "purchases" as const },
     { id: "inventory", label: "Inventory", icon: "cube", target: "inventory" as const },
     { id: "people", label: "People", icon: "people", target: "people" as const },
     { id: "finance", label: "Finance", icon: "wallet", target: "finance" as const },
     { id: "system", label: "System", icon: "settings", target: "system" as const },
+    { id: "platform", label: "Platform", icon: "shield-checkmark-outline", target: "platform" as const },
   ];
+  const visibleShortcuts = shortcuts.filter((shortcut) => canAccessModule(session, shortcut.target));
+  const heroModulesText = canAccessModule(session, "platform")
+    ? "Sales, purchases, inventory, people, finance, reports, system, and platform actions are grouped around the same backend modules used by the web app."
+    : "Sales, purchases, inventory, people, finance, reports, and system actions are grouped around the same backend modules used by the web app.";
 
   return (
     <View style={styles.wrap}>
@@ -55,16 +61,14 @@ export function DashboardScreen({
           <Text style={styles.business}>{session?.organizationName ?? "Retail workspace"}</Text>
         </View>
         <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{session?.username.slice(0, 2).toUpperCase() ?? "RM"}</Text>
+          <Text style={styles.avatarText}>{session?.username?.slice(0, 2).toUpperCase() ?? "RM"}</Text>
         </View>
       </View>
 
       <GradientCard colors={["#FFFFFF", "#F8FAFC"]} style={styles.hero}>
         <Text style={styles.heroEyebrow}>Workspace Overview</Text>
         <Text style={styles.heroTitle}>The mobile shell now follows the live backend domain flow.</Text>
-        <Text style={styles.heroText}>
-          Sales, purchases, inventory, people, finance, reports, and system actions are grouped around the same backend modules used by the web app.
-        </Text>
+        <Text style={styles.heroText}>{heroModulesText}</Text>
         <View style={styles.heroPills}>
           <Pill label={`${session?.organizationCode ?? "ORG"} active`} tone="blue" />
           <Pill label={refreshing ? "Refreshing" : "Live API"} tone="green" />
@@ -86,7 +90,7 @@ export function DashboardScreen({
 
       <SectionHeader title="Quick actions" action="Flow aware" />
       <View style={styles.shortcuts}>
-        {shortcuts.map((shortcut) => (
+        {visibleShortcuts.map((shortcut) => (
           <Pressable key={shortcut.id} onPress={() => onNavigate(shortcut.target)} style={styles.shortcut}>
             <View style={styles.shortcutIcon}>
               <Ionicons name={shortcut.icon as keyof typeof Ionicons.glyphMap} size={18} color={theme.colors.accent} />

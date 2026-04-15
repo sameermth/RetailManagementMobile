@@ -12,6 +12,7 @@ export type MembershipSummary = {
 export type SessionState = {
   baseUrl: string;
   token: string;
+  refreshToken?: string | null;
   type: string;
   userId: number;
   username: string;

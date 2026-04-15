@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHeader } from "../../components/Ui";
 import { SalesInvoice, SalesOrder, SalesQuote } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
+import { hasPermission } from "../../utils/access";
 import { formatCurrency } from "../../utils/formatters";
 
 type SalesView = "quotes" | "orders" | "invoices" | "receipts" | "new";
@@ -32,8 +33,10 @@ const emptyLine: DraftLine = {
 
 export function PosScreen({
   onDirtyChange,
+  onRegisterBackHandler,
 }: {
   onDirtyChange?: (dirty: boolean) => void;
+  onRegisterBackHandler?: (handler: (() => boolean) | null) => void;
 }) {
   const {
     convertOrderToInvoice,
@@ -68,6 +71,30 @@ export function PosScreen({
   const [referenceNumber, setReferenceNumber] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ ...emptyLine }]);
   const activeView = viewHistory[viewHistory.length - 1] ?? "quotes";
+  const canViewSales = hasPermission(session, "sales.view");
+  const canCreateSales = hasPermission(session, "sales.create");
+  const canReceiveCustomerPayments = hasPermission(session, "payments.customer");
+  const visibleViews: SalesView[] = [
+    ...(canViewSales ? (["quotes", "orders", "invoices"] as const) : []),
+    ...(canReceiveCustomerPayments ? (["receipts"] as const) : []),
+    ...(canCreateSales || canReceiveCustomerPayments ? (["new"] as const) : []),
+  ];
+  const draftTypeOptions: DraftType[] = [
+    ...(canCreateSales ? (["quote", "order", "invoice"] as const) : []),
+    ...(canReceiveCustomerPayments ? (["receipt"] as const) : []),
+  ];
+
+  useEffect(() => {
+    if (!visibleViews.includes(activeView)) {
+      setViewHistory([visibleViews[0] ?? "quotes"]);
+    }
+  }, [activeView, visibleViews]);
+
+  useEffect(() => {
+    if (!draftTypeOptions.includes(draftType)) {
+      setDraftType(draftTypeOptions[0] ?? "quote");
+    }
+  }, [draftType, draftTypeOptions]);
 
   const customerMap = useMemo(() => new Map(data.customers.map((entry) => [entry.id, entry.fullName])), [data.customers]);
   const productMap = useMemo(() => new Map(data.products.map((entry) => [entry.id, entry])), [data.products]);
@@ -221,6 +248,17 @@ export function PosScreen({
     label: product.name,
     meta: `${product.sku}${product.baseUomId ? ` • UOM ${product.baseUomId}` : ""}${product.inventoryTrackingMode ? ` • ${product.inventoryTrackingMode}` : ""}`,
   }));
+  const quoteTypeOptions = [
+    { id: "ESTIMATE", label: "Estimate" },
+    { id: "QUOTATION", label: "Quotation" },
+  ];
+  const receiptMethodOptions = [
+    { id: "UPI", label: "UPI" },
+    { id: "CASH", label: "Cash" },
+    { id: "CARD", label: "Card" },
+    { id: "BANK", label: "Bank transfer" },
+    { id: "CHEQUE", label: "Cheque" },
+  ];
   const isDraftDirty =
     activeView === "new" &&
     (
@@ -275,6 +313,22 @@ export function PosScreen({
     return () => onDirtyChange?.(false);
   }, [isDraftDirty, onDirtyChange]);
 
+  const canHandleBack = detail != null || selectedId != null || viewHistory.length > 1 || isDraftDirty;
+  useEffect(() => {
+    if (!onRegisterBackHandler) {
+      return;
+    }
+    if (!canHandleBack) {
+      onRegisterBackHandler(null);
+      return;
+    }
+    onRegisterBackHandler(() => {
+      goBack();
+      return true;
+    });
+    return () => onRegisterBackHandler(null);
+  }, [canHandleBack, detail, selectedId, viewHistory.length, isDraftDirty, onRegisterBackHandler]);
+
   return (
     <View style={styles.wrap}>
       <View>
@@ -282,10 +336,10 @@ export function PosScreen({
         <Text style={styles.subheading}>Quotes, orders, invoices, receipts, and conversion flows now align with the ERP sales APIs and line-item payloads.</Text>
       </View>
 
-      {detail || selectedId || viewHistory.length > 1 ? <BackButton label={detail ? "Back to list" : "Back"} onPress={goBack} /> : null}
+      {canHandleBack ? <BackButton label={detail ? "Back to list" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
-        {(["quotes", "orders", "invoices", "receipts", "new"] as const).map((view) => {
+        {visibleViews.map((view) => {
           const active = activeView === view;
           return (
             <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
@@ -301,7 +355,7 @@ export function PosScreen({
         <GlassCard style={styles.formCard}>
           <Text style={styles.formTitle}>Create sales document</Text>
           <View style={styles.choiceRow}>
-            {(["quote", "order", "invoice", "receipt"] as DraftType[]).map((type) => {
+            {draftTypeOptions.map((type) => {
               const active = draftType === type;
               return (
                 <Pressable key={type} onPress={() => setDraftType(type)} style={[styles.choiceChip, active && styles.choiceChipActive]}>
@@ -310,7 +364,6 @@ export function PosScreen({
               );
             })}
           </View>
-          <TextInput value={customerId} onChangeText={setCustomerId} placeholder="Customer id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
           <SearchableSelect
             label="Find customer"
             placeholder="Search customers"
@@ -330,7 +383,13 @@ export function PosScreen({
           </View>
           <Text style={styles.helperText}>Selected customer: {selectedCustomerName || "Pick a valid phase 1 customer id"}</Text>
           {draftType === "quote" ? (
-            <TextInput value={quoteType} onChangeText={setQuoteType} placeholder="Quote type (ESTIMATE or QUOTATION)" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Quote type"
+              placeholder="Choose quote type"
+              selectedLabel={quoteTypeOptions.find((option) => option.id === quoteType)?.label}
+              options={quoteTypeOptions}
+              onSelect={setQuoteType}
+            />
           ) : null}
           <TextInput value={documentDate} onChangeText={setDocumentDate} placeholder="Document date (YYYY-MM-DD)" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
           {draftType === "quote" ? (
@@ -344,7 +403,13 @@ export function PosScreen({
 
           {draftType === "receipt" ? (
             <>
-              <TextInput value={receiptMethod} onChangeText={setReceiptMethod} placeholder="Payment method" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+              <SearchableSelect
+                label="Payment method"
+                placeholder="Choose payment method"
+                selectedLabel={receiptMethodOptions.find((option) => option.id === receiptMethod)?.label}
+                options={receiptMethodOptions}
+                onSelect={setReceiptMethod}
+              />
               <TextInput value={receiptAmount} onChangeText={setReceiptAmount} placeholder="Amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
               <TextInput value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Reference number" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             </>
@@ -354,7 +419,6 @@ export function PosScreen({
               {lines.map((line, index) => (
                 <GlassCard key={`line-${index}`} style={styles.lineCard}>
                   <Text style={styles.lineTitle}>Line {index + 1}</Text>
-                  <TextInput value={line.productId} onChangeText={(value) => updateLine(index, "productId", value, setLines)} placeholder="Store product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
                   <SearchableSelect
                     label={`Find product for line ${index + 1}`}
                     placeholder="Search products"
@@ -393,7 +457,7 @@ export function PosScreen({
                       );
                     })}
                   </View>
-                  <TextInput value={line.uomId} onChangeText={(value) => updateLine(index, "uomId", value, setLines)} placeholder="UOM id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+                  <Text style={styles.helperText}>UOM: {line.uomId || "auto from product selection"}</Text>
                   <View style={styles.rowBetween}>
                     <TextInput value={line.quantity} onChangeText={(value) => updateLine(index, "quantity", value, setLines)} placeholder="Qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
                     <TextInput value={line.baseQuantity} onChangeText={(value) => updateLine(index, "baseQuantity", value, setLines)} placeholder="Base qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -462,7 +526,7 @@ export function PosScreen({
                 <ActionButton
                   label={activeView === "quotes" ? (quoteDetail?.quoteType === "QUOTATION" ? "Convert to order" : "Convert to invoice") : "Convert to invoice"}
                   icon="swap-horizontal"
-                  onPress={handleConvert}
+                  onPress={canCreateSales ? handleConvert : undefined}
                 />
               ) : null}
             </GlassCard>

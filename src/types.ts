@@ -1,5 +1,6 @@
 export type RootStackParamList = {
   Login: undefined;
+  OrganizationChooser: undefined;
   Home: undefined;
 };
 
@@ -11,4 +12,5 @@ export type AppModuleKey =
   | "people"
   | "finance"
   | "reports"
-  | "system";
+  | "system"
+  | "platform";

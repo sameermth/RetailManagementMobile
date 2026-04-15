@@ -5,6 +5,7 @@ import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHea
 import { PurchaseOrder, PurchaseReceipt } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
+import { hasAnyPermission, hasPermission } from "../../utils/access";
 import { formatCurrency } from "../../utils/formatters";
 
 type MoreView = "workspace" | "purchases" | "returns" | "service" | "finance" | "system" | "platform";
@@ -60,12 +61,14 @@ export function SettingsScreen({
   title = "System",
   subtitle = "Organization, service, finance, automation, and platform operations from the latest backend flows.",
   onDirtyChange,
+  onRegisterBackHandler,
 }: {
   initialView?: MoreView;
   allowedViews?: MoreView[];
   title?: string;
   subtitle?: string;
   onDirtyChange?: (dirty: boolean) => void;
+  onRegisterBackHandler?: (handler: (() => boolean) | null) => void;
 }) {
   const {
     apiGet,
@@ -164,7 +167,41 @@ export function SettingsScreen({
   });
   const [moduleMessage, setModuleMessage] = useState("");
   const activeView = viewHistory[viewHistory.length - 1] ?? initialView;
-  const visibleViews: MoreView[] = allowedViews ?? ["workspace", "purchases", "returns", "service", "finance", "system", "platform"];
+  const canManageSettings = hasPermission(session, "settings.manage");
+  const canManageUsers = hasPermission(session, "users.manage");
+  const canManageApprovals = hasPermission(session, "approvals.manage");
+  const canViewPurchases = hasPermission(session, "purchases.view");
+  const canCreatePurchases = hasPermission(session, "purchases.create");
+  const canReceivePurchases = hasPermission(session, "purchases.receive");
+  const canPaySuppliers = hasPermission(session, "payments.supplier");
+  const canViewReturns = hasAnyPermission(session, ["sales.return", "purchases.view"]);
+  const canCreateReturns = hasAnyPermission(session, ["sales.return", "purchases.create", "purchases.receive"]);
+  const canViewService = hasPermission(session, "service.view");
+  const canManageService = hasPermission(session, "service.manage");
+  const canManageClaims = hasPermission(session, "service.claims");
+  const canViewFinance = hasAnyPermission(session, ["expenses.view", "payments.customer", "payments.supplier", "reports.view"]);
+  const canCreateExpenses = hasPermission(session, "expenses.create");
+  const canApproveExpenses = hasPermission(session, "expenses.approve");
+  const canMutateFinanceRecords = hasAnyPermission(session, ["expenses.create", "expenses.approve", "settings.manage"]);
+  const canViewSystem = hasAnyPermission(session, ["settings.manage", "users.manage", "approvals.manage"]);
+  const canMutateSystem = hasAnyPermission(session, ["settings.manage", "users.manage"]);
+  const canPlatformManage = hasPermission(session, "platform.manage");
+  const requestedViews: MoreView[] = allowedViews ?? ["workspace", "purchases", "returns", "service", "finance", "system", "platform"];
+  const visibleViews: MoreView[] = requestedViews.filter((view) => {
+    if (view === "workspace") return true;
+    if (view === "purchases") return canViewPurchases || canCreatePurchases || canReceivePurchases || canPaySuppliers;
+    if (view === "returns") return canViewReturns;
+    if (view === "service") return canViewService || canManageService || canManageClaims;
+    if (view === "finance") return canViewFinance || canMutateFinanceRecords;
+    if (view === "system") return canViewSystem;
+    if (view === "platform") return canPlatformManage;
+    return false;
+  });
+  const purchaseDraftOptions: PurchaseDraft[] = [
+    ...(canCreatePurchases ? (["order"] as const) : []),
+    ...(canReceivePurchases ? (["receipt"] as const) : []),
+    ...(canPaySuppliers ? (["payment"] as const) : []),
+  ];
   const supplierMap = new Map(data.suppliers.map((supplier) => [supplier.id, supplier]));
   const productMap = new Map(data.products.map((product) => [product.id, product]));
   const customerMap = new Map(data.customers.map((customer) => [customer.id, customer]));
@@ -201,11 +238,84 @@ export function SettingsScreen({
     label: invoice.invoiceNumber || `Invoice ${invoice.id}`,
     meta: `${customerMap.get(invoice.customerId)?.fullName || `Customer ${invoice.customerId}`}${invoice.invoiceDate ? ` • ${invoice.invoiceDate}` : ""}`,
   }));
+  const purchaseOrderOptions = data.purchaseOrders.map((order) => ({
+    id: String(order.id),
+    label: order.poNumber || `PO ${order.id}`,
+    meta: `${supplierMap.get(order.supplierId)?.name || `Supplier ${order.supplierId}`}${order.poDate ? ` • ${order.poDate}` : ""}`,
+  }));
   const purchaseReceiptOptions = data.purchaseReceipts.map((receipt) => ({
     id: String(receipt.id),
     label: receipt.receiptNumber || `Receipt ${receipt.id}`,
     meta: `${supplierMap.get(receipt.supplierId)?.name || `Supplier ${receipt.supplierId}`}${receipt.receiptDate ? ` • ${receipt.receiptDate}` : ""}`,
   }));
+  const paymentMethodOptions = [
+    { id: "BANK", label: "Bank transfer" },
+    { id: "CASH", label: "Cash" },
+    { id: "UPI", label: "UPI" },
+    { id: "CARD", label: "Card" },
+    { id: "CHEQUE", label: "Cheque" },
+  ];
+  const servicePriorityOptions = [
+    { id: "LOW", label: "Low" },
+    { id: "MEDIUM", label: "Medium" },
+    { id: "HIGH", label: "High" },
+    { id: "CRITICAL", label: "Critical" },
+  ];
+  const claimTypeOptions = [
+    { id: "WARRANTY", label: "Warranty" },
+    { id: "OUT_OF_WARRANTY", label: "Out of warranty" },
+    { id: "DOA", label: "Dead on arrival" },
+  ];
+  const accountTypeOptions = [
+    { id: "ASSET", label: "Asset" },
+    { id: "LIABILITY", label: "Liability" },
+    { id: "INCOME", label: "Income" },
+    { id: "EXPENSE", label: "Expense" },
+    { id: "BANK", label: "Bank" },
+    { id: "CASH", label: "Cash" },
+  ];
+  const employeeRoleOptions = [
+    { id: "OWNER", label: "Owner" },
+    { id: "ADMIN", label: "Admin" },
+    { id: "ACCOUNTANT", label: "Accountant" },
+    { id: "STORE_MANAGER", label: "Store Manager" },
+    { id: "CASHIER", label: "Cashier" },
+    { id: "PURCHASE_OPERATOR", label: "Purchase Operator" },
+    { id: "TECHNICIAN", label: "Technician" },
+    { id: "VIEWER", label: "Viewer" },
+  ];
+  const templateTypeOptions = [
+    { id: "SYSTEM_ALERT", label: "System alert" },
+    { id: "REPORT_DELIVERED", label: "Report delivered" },
+    { id: "LOW_STOCK_ALERT", label: "Low stock alert" },
+    { id: "PAYMENT_RECEIVED", label: "Payment received" },
+  ];
+  const templateChannelOptions = [
+    { id: "EMAIL", label: "Email" },
+    { id: "SMS", label: "SMS" },
+    { id: "PUSH_NOTIFICATION", label: "Push notification" },
+    { id: "IN_APP", label: "In-app" },
+    { id: "WEBHOOK", label: "Webhook" },
+  ];
+  const reportTypeOptions = [
+    { id: "SALES_SUMMARY", label: "Sales summary" },
+    { id: "PURCHASE_SUMMARY", label: "Purchase summary" },
+    { id: "INVENTORY_SUMMARY", label: "Inventory summary" },
+    { id: "TAX_REPORT", label: "Tax report" },
+    { id: "PROFIT_LOSS", label: "Profit and loss" },
+  ];
+  const scheduleFormatOptions = [
+    { id: "PDF", label: "PDF" },
+    { id: "EXCEL", label: "Excel" },
+    { id: "CSV", label: "CSV" },
+    { id: "HTML", label: "HTML" },
+    { id: "JSON", label: "JSON" },
+  ];
+  const scheduleFrequencyOptions = [
+    { id: "DAILY", label: "Daily" },
+    { id: "WEEKLY", label: "Weekly" },
+    { id: "MONTHLY", label: "Monthly" },
+  ];
   const isPurchasesDirty =
     activeView === "purchases" &&
     (
@@ -259,6 +369,18 @@ export function SettingsScreen({
   useEffect(() => {
     setViewHistory([initialView]);
   }, [initialView]);
+
+  useEffect(() => {
+    if (!visibleViews.includes(activeView)) {
+      setViewHistory([visibleViews[0] ?? "workspace"]);
+    }
+  }, [activeView, visibleViews]);
+
+  useEffect(() => {
+    if (!purchaseDraftOptions.includes(draftType)) {
+      setDraftType(purchaseDraftOptions[0] ?? "order");
+    }
+  }, [draftType, purchaseDraftOptions]);
 
   function navigateView(view: MoreView) {
     setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
@@ -349,6 +471,31 @@ export function SettingsScreen({
     return () => onDirtyChange?.(false);
   }, [isFinanceDirty, isPlatformDirty, isPurchasesDirty, isReturnsDirty, isServiceDirty, isSystemDirty, onDirtyChange]);
 
+  const canHandleBack =
+    selectedOrder != null ||
+    selectedReceipt != null ||
+    viewHistory.length > 1 ||
+    isPurchasesDirty ||
+    isReturnsDirty ||
+    isServiceDirty ||
+    isFinanceDirty ||
+    isSystemDirty ||
+    isPlatformDirty;
+  useEffect(() => {
+    if (!onRegisterBackHandler) {
+      return;
+    }
+    if (!canHandleBack) {
+      onRegisterBackHandler(null);
+      return;
+    }
+    onRegisterBackHandler(() => {
+      goBack();
+      return true;
+    });
+    return () => onRegisterBackHandler(null);
+  }, [canHandleBack, isFinanceDirty, isPlatformDirty, isPurchasesDirty, isReturnsDirty, isServiceDirty, isSystemDirty, onRegisterBackHandler, selectedOrder, selectedReceipt, viewHistory.length]);
+
   function goBack() {
     if (selectedOrder || selectedReceipt) {
       setSelectedOrder(null);
@@ -414,6 +561,9 @@ export function SettingsScreen({
   }, [activeView, apiGet, apiPost, financeForm.bankAccountId, financeForm.fromDate, financeForm.toDate, session?.organizationId]);
 
   async function handleCreatePurchase() {
+    if (!(canCreatePurchases || canReceivePurchases || canPaySuppliers)) {
+      return;
+    }
     setSaving(true);
     try {
       if (draftType === "payment") {
@@ -483,6 +633,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateReturn() {
+    if (!canCreateReturns) return;
     if (!session?.organizationId || !session?.branchId) return;
     if (returnForm.kind === "sales") {
       await apiPost("/api/erp/returns/sales", {
@@ -517,6 +668,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateServiceTicket() {
+    if (!canManageService) return;
     if (!session?.organizationId || !session?.branchId) return;
     await apiPost("/api/erp/service/tickets", {
       organizationId: session.organizationId,
@@ -531,6 +683,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateClaim() {
+    if (!(canManageService || canManageClaims)) return;
     if (!session?.organizationId || !session?.branchId) return;
     await apiPost("/api/erp/service/warranty-claims", {
       organizationId: session.organizationId,
@@ -543,6 +696,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateReplacement() {
+    if (!canManageService) return;
     if (!session?.organizationId || !session?.branchId) return;
     await apiPost("/api/erp/service/replacements", {
       organizationId: session.organizationId,
@@ -560,6 +714,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateFinanceRecords() {
+    if (!canMutateFinanceRecords) return;
     if (!session?.organizationId || !session?.branchId) return;
     if (financeForm.accountCode && financeForm.accountName) {
       await apiPost("/api/erp/finance/accounts", {
@@ -594,6 +749,7 @@ export function SettingsScreen({
   }
 
   async function handleCreateSystemRecords() {
+    if (!canMutateSystem) return;
     if (!session?.organizationId) return;
     if (systemForm.organizationName && systemForm.organizationCode) {
       await apiPost("/api/erp/organizations", {
@@ -651,6 +807,7 @@ export function SettingsScreen({
   }
 
   async function handlePlatformActions() {
+    if (!canPlatformManage) return;
     if (platformForm.emailTo && platformForm.emailSubject && platformForm.emailContent) {
       const emailResult = await apiPost<NotificationResponse>("/api/notifications/email/send", {
         to: platformForm.emailTo,
@@ -697,7 +854,7 @@ export function SettingsScreen({
         <Text style={styles.subheading}>{subtitle}</Text>
       </View>
 
-      {selectedOrder || selectedReceipt || viewHistory.length > 1 ? <BackButton label={selectedOrder || selectedReceipt ? "Back to list" : "Back"} onPress={goBack} /> : null}
+      {canHandleBack ? <BackButton label={selectedOrder || selectedReceipt ? "Back to list" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
         {visibleViews.map((view) => {
@@ -735,7 +892,6 @@ export function SettingsScreen({
               options={warehouseOptions}
               onSelect={(id) => updateSessionDraft({ warehouseId: id })}
             />
-            <TextInput defaultValue={String(session?.warehouseId ?? "")} onChangeText={(value) => updateSessionDraft({ warehouseId: value })} placeholder="Default warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <ActionButton label="Refresh backend data" icon="refresh" onPress={refreshAll} />
             <ActionButton label="Sign out" icon="log-out" inverted onPress={signOut} />
           </GlassCard>
@@ -747,7 +903,7 @@ export function SettingsScreen({
           <SectionHeader title="Purchase documents" action={`${data.purchaseOrders.length + data.purchaseReceipts.length + data.supplierPayments.length} flows`} />
           <GlassCard style={styles.formCard}>
             <View style={styles.choiceRow}>
-              {(["order", "receipt", "payment"] as PurchaseDraft[]).map((type) => {
+              {purchaseDraftOptions.map((type) => {
                 const active = draftType === type;
                 return (
                   <Pressable key={type} onPress={() => setDraftType(type)} style={[styles.choiceChip, active && styles.choiceChipActive]}>
@@ -773,16 +929,29 @@ export function SettingsScreen({
                 );
               })}
             </View>
-            <TextInput value={supplierId} onChangeText={setSupplierId} placeholder="Supplier id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <Text style={styles.helperText}>Selected supplier: {supplierMap.get(Number(supplierId))?.name || "Pick a supplier to link documents and lines."}</Text>
             <TextInput value={documentDate} onChangeText={setDocumentDate} placeholder="Document date" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            {draftType === "receipt" ? <TextInput value={purchaseOrderId} onChangeText={setPurchaseOrderId} placeholder="Purchase order id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" /> : null}
+            {draftType === "receipt" ? (
+              <SearchableSelect
+                label="Link purchase order"
+                placeholder="Search purchase orders"
+                selectedLabel={data.purchaseOrders.find((order) => String(order.id) === purchaseOrderId)?.poNumber}
+                options={purchaseOrderOptions}
+                onSelect={setPurchaseOrderId}
+              />
+            ) : null}
             {draftType === "receipt" ? <TextInput value={dueDate} onChangeText={setDueDate} placeholder="Due date" placeholderTextColor={theme.colors.textMuted} style={styles.input} /> : null}
             <TextInput value={placeOfSupplyStateCode} onChangeText={setPlaceOfSupplyStateCode} placeholder="Place of supply state code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={remarks} onChangeText={setRemarks} placeholder="Remarks" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             {draftType === "payment" ? (
               <>
-                <TextInput value={paymentMethod} onChangeText={setPaymentMethod} placeholder="Payment method" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+                <SearchableSelect
+                  label="Payment method"
+                  placeholder="Choose payment method"
+                  selectedLabel={paymentMethodOptions.find((option) => option.id === paymentMethod)?.label}
+                  options={paymentMethodOptions}
+                  onSelect={setPaymentMethod}
+                />
                 <TextInput value={referenceNumber} onChangeText={setReferenceNumber} placeholder="Reference number" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
                 <TextInput value={paymentAmount} onChangeText={setPaymentAmount} placeholder="Payment amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
               </>
@@ -791,7 +960,6 @@ export function SettingsScreen({
                 {lines.map((line, index) => (
                   <GlassCard key={`purchase-line-${index}`} style={styles.lineCard}>
                     <Text style={styles.entityTitle}>Line {index + 1}</Text>
-                    <TextInput value={line.productId} onChangeText={(value) => updateLine(index, "productId", value, setLines)} placeholder="Store product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
                     <SearchableSelect
                       label={`Find product for line ${index + 1}`}
                       placeholder="Search products"
@@ -824,8 +992,8 @@ export function SettingsScreen({
                         );
                       })}
                     </View>
-                    <TextInput value={line.supplierProductId} onChangeText={(value) => updateLine(index, "supplierProductId", value, setLines)} placeholder="Supplier product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-                    <TextInput value={line.uomId} onChangeText={(value) => updateLine(index, "uomId", value, setLines)} placeholder="UOM id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+                    <TextInput value={line.supplierProductId} onChangeText={(value) => updateLine(index, "supplierProductId", value, setLines)} placeholder="Supplier product code (optional)" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+                    <Text style={styles.helperText}>UOM: {line.uomId || "auto from product selection"}</Text>
                     <View style={styles.rowBetween}>
                       <TextInput value={line.quantity} onChangeText={(value) => updateLine(index, "quantity", value, setLines)} placeholder="Qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
                       <TextInput value={line.baseQuantity} onChangeText={(value) => updateLine(index, "baseQuantity", value, setLines)} placeholder="Base qty" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -836,7 +1004,7 @@ export function SettingsScreen({
                 <ActionButton label="Add line" icon="add" inverted onPress={() => setLines((current) => [...current, { ...emptyPurchaseLine }])} />
               </>
             )}
-            <ActionButton label={saving ? "Saving..." : `Create ${draftType}`} icon="bag" onPress={saving ? undefined : handleCreatePurchase} />
+            <ActionButton label={saving ? "Saving..." : `Create ${draftType}`} icon="bag" onPress={saving || !(canCreatePurchases || canReceivePurchases || canPaySuppliers) ? undefined : handleCreatePurchase} />
           </GlassCard>
           <SectionHeader title="Purchase orders" action={`${data.purchaseOrders.length} docs`} />
           <View style={styles.list}>
@@ -896,7 +1064,6 @@ export function SettingsScreen({
                 onSelect={(id) => setReturnForm((current) => ({ ...current, originalId: id }))}
               />
             )}
-            <TextInput value={returnForm.originalId} onChangeText={(value) => setReturnForm((current) => ({ ...current, originalId: value }))} placeholder={returnForm.kind === "sales" ? "Original invoice id" : "Original purchase receipt id"} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={returnForm.productLineId} onChangeText={(value) => setReturnForm((current) => ({ ...current, productLineId: value }))} placeholder="Original line id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <View style={styles.rowBetween}>
               <TextInput value={returnForm.quantity} onChangeText={(value) => setReturnForm((current) => ({ ...current, quantity: value }))} placeholder="Quantity" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
@@ -908,7 +1075,7 @@ export function SettingsScreen({
                 ? `Selected invoice: ${data.invoices.find((invoice) => String(invoice.id) === returnForm.originalId)?.invoiceNumber || "Choose a source invoice"}`
                 : `Selected receipt: ${data.purchaseReceipts.find((receipt) => String(receipt.id) === returnForm.originalId)?.receiptNumber || "Choose a source receipt"}`}
             </Text>
-            <ActionButton label="Create return" icon="return-up-back" onPress={handleCreateReturn} />
+            <ActionButton label="Create return" icon="return-up-back" onPress={canCreateReturns ? handleCreateReturn : undefined} />
           </GlassCard>
           <SectionHeader title="Sales returns" action={`${salesReturns.length} docs`} />
           <View style={styles.list}>{salesReturns.map((item) => <DocCard key={item.id} title={item.returnNumber || `SR ${item.id}`} subtitle={item.returnDate || "No date"} amount={item.totalAmount ?? 0} status={item.status || "OPEN"} />)}</View>
@@ -971,19 +1138,27 @@ export function SettingsScreen({
                 </Pressable>
               ))}
             </View>
-            <TextInput value={serviceForm.customerId} onChangeText={(value) => setServiceForm((current) => ({ ...current, customerId: value }))} placeholder="Customer id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={serviceForm.productId} onChangeText={(value) => setServiceForm((current) => ({ ...current, productId: value }))} placeholder="Product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={serviceForm.complaintSummary} onChangeText={(value) => setServiceForm((current) => ({ ...current, complaintSummary: value }))} placeholder="Complaint summary" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.priority} onChangeText={(value) => setServiceForm((current) => ({ ...current, priority: value }))} placeholder="Priority" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.claimType} onChangeText={(value) => setServiceForm((current) => ({ ...current, claimType: value }))} placeholder="Claim type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={serviceForm.replacementProductId} onChangeText={(value) => setServiceForm((current) => ({ ...current, replacementProductId: value }))} placeholder="Replacement product id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={serviceForm.warehouseId} onChangeText={(value) => setServiceForm((current) => ({ ...current, warehouseId: value }))} placeholder="Warehouse id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Priority"
+              placeholder="Choose priority"
+              selectedLabel={servicePriorityOptions.find((option) => option.id === serviceForm.priority)?.label}
+              options={servicePriorityOptions}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, priority: id }))}
+            />
+            <SearchableSelect
+              label="Claim type"
+              placeholder="Choose claim type"
+              selectedLabel={claimTypeOptions.find((option) => option.id === serviceForm.claimType)?.label}
+              options={claimTypeOptions}
+              onSelect={(id) => setServiceForm((current) => ({ ...current, claimType: id }))}
+            />
             <Text style={styles.helperText}>
               Customer {customerMap.get(Number(serviceForm.customerId))?.fullName || "not selected"} • Product {productMap.get(Number(serviceForm.productId))?.name || "not selected"} • Replacement {productMap.get(Number(serviceForm.replacementProductId))?.name || "not selected"} • Warehouse {warehouseMap.get(Number(serviceForm.warehouseId))?.name || "not selected"}
             </Text>
-            <ActionButton label="Create ticket" icon="construct" onPress={handleCreateServiceTicket} />
-            <ActionButton label="Create claim" icon="shield-checkmark" inverted onPress={handleCreateClaim} />
-            <ActionButton label="Issue replacement" icon="repeat" inverted onPress={handleCreateReplacement} />
+            <ActionButton label="Create ticket" icon="construct" onPress={canManageService ? handleCreateServiceTicket : undefined} />
+            <ActionButton label="Create claim" icon="shield-checkmark" inverted onPress={canManageService || canManageClaims ? handleCreateClaim : undefined} />
+            <ActionButton label="Issue replacement" icon="repeat" inverted onPress={canManageService ? handleCreateReplacement : undefined} />
           </GlassCard>
           <SectionHeader title="Tickets" action={`${tickets.length} docs`} />
           <View style={styles.list}>{tickets.map((ticket) => <DocCard key={ticket.id} title={ticket.ticketNumber || `TKT ${ticket.id}`} subtitle={ticket.complaintSummary || "No summary"} amount={0} status={ticket.status || ticket.priority || "OPEN"} hideAmount />)}</View>
@@ -1029,19 +1204,22 @@ export function SettingsScreen({
             />
             <TextInput value={financeForm.accountCode} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountCode: value }))} placeholder="New account code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={financeForm.accountName} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountName: value }))} placeholder="New account name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={financeForm.accountType} onChangeText={(value) => setFinanceForm((current) => ({ ...current, accountType: value }))} placeholder="Account type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={financeForm.voucherAccountId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherAccountId: value }))} placeholder="Voucher account id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
+            <SearchableSelect
+              label="Account type"
+              placeholder="Choose account type"
+              selectedLabel={accountTypeOptions.find((option) => option.id === financeForm.accountType)?.label}
+              options={accountTypeOptions}
+              onSelect={(id) => setFinanceForm((current) => ({ ...current, accountType: id }))}
+            />
             <View style={styles.rowBetween}>
               <TextInput value={financeForm.voucherDebit} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherDebit: value }))} placeholder="Debit" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
               <TextInput value={financeForm.voucherCredit} onChangeText={(value) => setFinanceForm((current) => ({ ...current, voucherCredit: value }))} placeholder="Credit" placeholderTextColor={theme.colors.textMuted} style={[styles.input, styles.halfInput]} keyboardType="numeric" />
             </View>
-            <TextInput value={financeForm.expenseCategoryId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseCategoryId: value }))} placeholder="Expense category id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <TextInput value={financeForm.expenseAmount} onChangeText={(value) => setFinanceForm((current) => ({ ...current, expenseAmount: value }))} placeholder="Expense amount" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <TextInput value={financeForm.bankAccountId} onChangeText={(value) => setFinanceForm((current) => ({ ...current, bankAccountId: value }))} placeholder="Bank account id for reconciliation" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
             <Text style={styles.helperText}>
               Voucher account {accountMap.get(Number(financeForm.voucherAccountId))?.name || "not selected"} • Expense category {expenseCategories.find((category) => String(category.id) === financeForm.expenseCategoryId)?.name || "not selected"} • Bank account {accountMap.get(Number(financeForm.bankAccountId))?.name || "not selected"}
             </Text>
-            <ActionButton label="Submit finance records" icon="cash" onPress={handleCreateFinanceRecords} />
+            <ActionButton label="Submit finance records" icon="cash" onPress={canMutateFinanceRecords ? handleCreateFinanceRecords : undefined} />
           </GlassCard>
           <View style={styles.cardStack}>
             <GlassCard style={styles.reportCard}>
@@ -1085,7 +1263,13 @@ export function SettingsScreen({
             <TextInput value={systemForm.employeeFullName} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeFullName: value }))} placeholder="Employee full name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeeEmail} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeEmail: value }))} placeholder="Employee email" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={systemForm.employeePhone} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeePhone: value }))} placeholder="Employee phone" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={systemForm.employeeRoleCode} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeRoleCode: value }))} placeholder="Employee role code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Employee role"
+              placeholder="Choose role"
+              selectedLabel={employeeRoleOptions.find((option) => option.id === systemForm.employeeRoleCode)?.label}
+              options={employeeRoleOptions}
+              onSelect={(id) => setSystemForm((current) => ({ ...current, employeeRoleCode: id }))}
+            />
             <View style={styles.quickPickWrap}>
               {branches.slice(0, 6).map((branch) => {
                 const active = systemForm.employeeDefaultBranchId === String(branch.id);
@@ -1096,8 +1280,7 @@ export function SettingsScreen({
                 );
               })}
             </View>
-            <TextInput value={systemForm.employeeDefaultBranchId} onChangeText={(value) => setSystemForm((current) => ({ ...current, employeeDefaultBranchId: value }))} placeholder="Employee default branch id" placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType="numeric" />
-            <ActionButton label="Submit system updates" icon="settings" onPress={handleCreateSystemRecords} />
+            <ActionButton label="Submit system updates" icon="settings" onPress={canMutateSystem ? handleCreateSystemRecords : undefined} />
           </GlassCard>
           <View style={styles.cardStack}>
             <GlassCard style={styles.reportCard}>
@@ -1135,15 +1318,45 @@ export function SettingsScreen({
             <TextInput value={platformForm.smsMessage} onChangeText={(value) => setPlatformForm((current) => ({ ...current, smsMessage: value }))} placeholder="SMS message" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.templateCode} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateCode: value }))} placeholder="Template code" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.templateName} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateName: value }))} placeholder="Template name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.templateType} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateType: value }))} placeholder="Template type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.templateChannel} onChangeText={(value) => setPlatformForm((current) => ({ ...current, templateChannel: value }))} placeholder="Template channel" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Template type"
+              placeholder="Choose template type"
+              selectedLabel={templateTypeOptions.find((option) => option.id === platformForm.templateType)?.label}
+              options={templateTypeOptions}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, templateType: id }))}
+            />
+            <SearchableSelect
+              label="Template channel"
+              placeholder="Choose template channel"
+              selectedLabel={templateChannelOptions.find((option) => option.id === platformForm.templateChannel)?.label}
+              options={templateChannelOptions}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, templateChannel: id }))}
+            />
             <TextInput value={platformForm.scheduleName} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleName: value }))} placeholder="Schedule name" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleReportType} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleReportType: value }))} placeholder="Schedule report type" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleFormat} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleFormat: value }))} placeholder="Schedule format" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <TextInput value={platformForm.scheduleFrequency} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleFrequency: value }))} placeholder="Schedule frequency" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
+            <SearchableSelect
+              label="Schedule report type"
+              placeholder="Choose report type"
+              selectedLabel={reportTypeOptions.find((option) => option.id === platformForm.scheduleReportType)?.label}
+              options={reportTypeOptions}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleReportType: id }))}
+            />
+            <SearchableSelect
+              label="Schedule format"
+              placeholder="Choose file format"
+              selectedLabel={scheduleFormatOptions.find((option) => option.id === platformForm.scheduleFormat)?.label}
+              options={scheduleFormatOptions}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleFormat: id }))}
+            />
+            <SearchableSelect
+              label="Schedule frequency"
+              placeholder="Choose frequency"
+              selectedLabel={scheduleFrequencyOptions.find((option) => option.id === platformForm.scheduleFrequency)?.label}
+              options={scheduleFrequencyOptions}
+              onSelect={(id) => setPlatformForm((current) => ({ ...current, scheduleFrequency: id }))}
+            />
             <TextInput value={platformForm.scheduleCron} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleCron: value }))} placeholder="Cron expression" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             <TextInput value={platformForm.scheduleRecipients} onChangeText={(value) => setPlatformForm((current) => ({ ...current, scheduleRecipients: value }))} placeholder="Schedule recipients" placeholderTextColor={theme.colors.textMuted} style={styles.input} />
-            <ActionButton label="Submit platform actions" icon="rocket" onPress={handlePlatformActions} />
+            <ActionButton label="Submit platform actions" icon="rocket" onPress={canPlatformManage ? handlePlatformActions : undefined} />
           </GlassCard>
           <View style={styles.cardStack}>
             <GlassCard style={styles.reportCard}>

@@ -5,6 +5,7 @@ import { ActionButton, BackButton, GlassCard, Pill, SectionHeader } from "../../
 import { Customer, StoreCustomerTerms, StoreSupplierTerms, Supplier, SupplierCatalog } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
+import { hasPermission } from "../../utils/access";
 import { formatCurrency } from "../../utils/formatters";
 
 type PartyView = "customers" | "suppliers" | "new";
@@ -34,8 +35,10 @@ const blankPartyForm = {
 
 export function CustomersScreen({
   onDirtyChange,
+  onRegisterBackHandler,
 }: {
   onDirtyChange?: (dirty: boolean) => void;
+  onRegisterBackHandler?: (handler: (() => boolean) | null) => void;
 }) {
   const {
     createCustomer,
@@ -47,6 +50,7 @@ export function CustomersScreen({
     loadSupplierTerms,
     saveCustomerTerms,
     saveSupplierTerms,
+    session,
     updateCustomer,
     updateSupplier,
   } = useAppData();
@@ -60,6 +64,12 @@ export function CustomersScreen({
   const [supplierCatalog, setSupplierCatalog] = useState<SupplierCatalog | null>(null);
   const [saving, setSaving] = useState(false);
   const activeView = viewHistory[viewHistory.length - 1] ?? "customers";
+  const canManageMasters = hasPermission(session, "masters.manage");
+  const visibleViews: PartyView[] = [
+    "customers",
+    "suppliers",
+    ...(canManageMasters ? (["new"] as const) : []),
+  ];
 
   const customers = data.customers.filter((customer) =>
     `${customer.fullName} ${customer.customerCode} ${customer.phone ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
@@ -135,6 +145,12 @@ export function CustomersScreen({
       return value !== baseline;
     });
 
+  useEffect(() => {
+    if (!visibleViews.includes(activeView)) {
+      setViewHistory([visibleViews[0]]);
+    }
+  }, [activeView, visibleViews]);
+
   function navigateView(view: PartyView) {
     setViewHistory((current) => (current[current.length - 1] === view ? current : [...current, view]));
   }
@@ -164,6 +180,22 @@ export function CustomersScreen({
     onDirtyChange?.(isFormDirty);
     return () => onDirtyChange?.(false);
   }, [isFormDirty, onDirtyChange]);
+
+  const canHandleBack = selectedId != null || viewHistory.length > 1 || isFormDirty;
+  useEffect(() => {
+    if (!onRegisterBackHandler) {
+      return;
+    }
+    if (!canHandleBack) {
+      onRegisterBackHandler(null);
+      return;
+    }
+    onRegisterBackHandler(() => {
+      goBack();
+      return true;
+    });
+    return () => onRegisterBackHandler(null);
+  }, [canHandleBack, isFormDirty, onRegisterBackHandler, selectedId, viewHistory.length]);
 
   function goBack() {
     if (selectedId != null) {
@@ -303,10 +335,10 @@ export function CustomersScreen({
         <Text style={styles.subheading}>Customers and suppliers now follow the dedicated phase 1 party contracts, including terms and supplier catalogs.</Text>
       </View>
 
-      {selectedId != null || viewHistory.length > 1 ? <BackButton label={selectedId != null ? "Back to list" : "Back"} onPress={goBack} /> : null}
+      {canHandleBack ? <BackButton label={selectedId != null ? "Back to list" : "Back"} onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
-        {(["customers", "suppliers", "new"] as const).map((view) => {
+        {visibleViews.map((view) => {
           const active = activeView === view;
           return (
             <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
@@ -372,7 +404,7 @@ export function CustomersScreen({
                   <Text style={styles.detailLine}>Contract remarks: {supplierTerms?.remarks || "None"}</Text>
                 </>
               )}
-              <ActionButton label="Update current party" icon="create" onPress={handleUpdate} />
+              {canManageMasters ? <ActionButton label="Update current party" icon="create" onPress={handleUpdate} /> : null}
             </GlassCard>
           ) : null}
         </>

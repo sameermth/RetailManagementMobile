@@ -3,12 +3,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Alert, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Screen } from "../components/Screen";
+import { useAppData } from "../store/AppDataContext";
 import { theme } from "../theme/theme";
 import { AppModuleKey } from "../types";
+import { canAccessModule } from "../utils/access";
 import { CustomersScreen } from "./tabs/CustomersScreen";
 import { DashboardScreen } from "./tabs/DashboardScreen";
 import { FinanceScreen } from "./tabs/FinanceScreen";
 import { InventoryScreen } from "./tabs/InventoryScreen";
+import { PlatformAdminScreen } from "./tabs/PlatformAdminScreen";
 import { PosScreen } from "./tabs/PosScreen";
 import { PurchasesScreen } from "./tabs/PurchasesScreen";
 import { ReportsScreen } from "./tabs/ReportsScreen";
@@ -23,12 +26,16 @@ const modules: { key: AppModuleKey; label: string; icon: keyof typeof Ionicons.g
   { key: "finance", label: "Finance", icon: "wallet-outline", description: "Accounts, vouchers, expenses, and bank rec" },
   { key: "reports", label: "Reports", icon: "bar-chart-outline", description: "Business, GST, approvals, and workflow" },
   { key: "system", label: "System", icon: "settings-outline", description: "Organization, branches, employees, and tooling" },
+  { key: "platform", label: "Platform", icon: "shield-checkmark-outline", description: "Platform control panel for stores and subscriptions" },
 ];
 
 export function MainShellScreen() {
   const [history, setHistory] = useState<AppModuleKey[]>(["dashboard"]);
   const [moduleDirty, setModuleDirty] = useState(false);
-  const activeModule = history[history.length - 1] ?? "dashboard";
+  const [nestedBackHandler, setNestedBackHandler] = useState<(() => boolean) | null>(null);
+  const { session } = useAppData();
+  const visibleModules = useMemo(() => modules.filter((module) => canAccessModule(session, module.key)), [session]);
+  const activeModule = history[history.length - 1] ?? visibleModules[0]?.key ?? "dashboard";
 
   function confirmDiscard(onConfirm: () => void) {
     const thing =
@@ -52,6 +59,9 @@ export function MainShellScreen() {
   }
 
   function navigateTo(module: AppModuleKey) {
+    if (!canAccessModule(session, module)) {
+      return;
+    }
     if (module === activeModule) {
       return;
     }
@@ -68,6 +78,9 @@ export function MainShellScreen() {
   }
 
   function goBack() {
+    if (nestedBackHandler?.()) {
+      return;
+    }
     if (moduleDirty) {
       confirmDiscard(() => {
         setModuleDirty(false);
@@ -80,6 +93,9 @@ export function MainShellScreen() {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (nestedBackHandler?.()) {
+        return true;
+      }
       if (history.length > 1) {
         goBack();
         return true;
@@ -87,30 +103,40 @@ export function MainShellScreen() {
       return false;
     });
     return () => subscription.remove();
-  }, [history.length]);
+  }, [history.length, moduleDirty, activeModule, nestedBackHandler, session]);
 
-  const activeItem = modules.find((item) => item.key === activeModule) ?? modules[0];
+  useEffect(() => {
+    if (!canAccessModule(session, activeModule)) {
+      const fallback = visibleModules[0]?.key ?? "dashboard";
+      setModuleDirty(false);
+      setHistory([fallback]);
+    }
+  }, [activeModule, session, visibleModules]);
+
+  const activeItem = visibleModules.find((item) => item.key === activeModule) ?? visibleModules[0] ?? modules[0];
   const content = useMemo(() => {
     switch (activeModule) {
       case "sales":
-        return <PosScreen onDirtyChange={setModuleDirty} />;
+        return <PosScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "purchases":
-        return <PurchasesScreen onDirtyChange={setModuleDirty} />;
+        return <PurchasesScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "inventory":
-        return <InventoryScreen onDirtyChange={setModuleDirty} />;
+        return <InventoryScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "people":
-        return <CustomersScreen onDirtyChange={setModuleDirty} />;
+        return <CustomersScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "finance":
-        return <FinanceScreen onDirtyChange={setModuleDirty} />;
+        return <FinanceScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "reports":
         return <ReportsScreen />;
       case "system":
-        return <SystemScreen onDirtyChange={setModuleDirty} />;
+        return <SystemScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
+      case "platform":
+        return <PlatformAdminScreen onDirtyChange={setModuleDirty} onRegisterBackHandler={setNestedBackHandler} />;
       case "dashboard":
       default:
         return <DashboardScreen onNavigate={navigateTo} />;
     }
-  }, [activeModule]);
+  }, [activeModule, session]);
 
   return (
     <View style={styles.root}>
@@ -122,7 +148,7 @@ export function MainShellScreen() {
               <Text style={styles.shellTitle}>{activeItem.label}</Text>
               <Text style={styles.shellDescription}>{activeItem.description}</Text>
             </View>
-            {history.length > 1 ? (
+            {history.length > 1 || nestedBackHandler ? (
               <Pressable onPress={goBack} style={styles.backButton}>
                 <Ionicons name="arrow-back" size={18} color={theme.colors.textPrimary} />
                 <Text style={styles.backButtonText}>Back</Text>
@@ -136,7 +162,7 @@ export function MainShellScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.moduleRail}
         >
-          {modules.map((module) => {
+          {visibleModules.map((module) => {
             const active = module.key === activeModule;
             return (
               <Pressable

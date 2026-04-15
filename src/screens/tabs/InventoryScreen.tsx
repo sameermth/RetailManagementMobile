@@ -5,6 +5,7 @@ import { ActionButton, BackButton, GlassCard, Pill, SearchableSelect, SectionHea
 import { StoreProduct } from "../../data/entities";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
+import { hasPermission } from "../../utils/access";
 import { formatCurrency } from "../../utils/formatters";
 
 type InventoryView = "catalog" | "tracking" | "balances" | "operations" | "movements";
@@ -105,8 +106,10 @@ const blankForm = {
 
 export function InventoryScreen({
   onDirtyChange,
+  onRegisterBackHandler,
 }: {
   onDirtyChange?: (dirty: boolean) => void;
+  onRegisterBackHandler?: (handler: (() => boolean) | null) => void;
 }) {
   const { apiGet, apiPost, createProduct, data, error, refreshing, session } = useAppData();
   const [viewHistory, setViewHistory] = useState<InventoryView[]>(["catalog"]);
@@ -126,6 +129,22 @@ export function InventoryScreen({
   const [adjustment, setAdjustment] = useState({ productId: "", uomId: "", quantityDelta: "", baseQuantityDelta: "", unitCost: "", reason: "" });
   const [transfer, setTransfer] = useState({ fromWarehouseId: String(session?.warehouseId ?? ""), toWarehouseId: "", productId: "", uomId: "", quantity: "1", baseQuantity: "1" });
   const activeView = viewHistory[viewHistory.length - 1] ?? "catalog";
+  const canViewInventory = hasPermission(session, "inventory.view");
+  const canViewMasters = hasPermission(session, "masters.view");
+  const canManageMasters = hasPermission(session, "masters.manage");
+  const canAdjustInventory = hasPermission(session, "inventory.adjust");
+  const canTransferInventory = hasPermission(session, "inventory.transfer");
+  const visibleViews: InventoryView[] = [
+    ...(canViewInventory || canViewMasters ? (["catalog"] as const) : []),
+    ...(canViewInventory ? (["tracking", "balances", "movements"] as const) : []),
+    ...(canAdjustInventory || canTransferInventory ? (["operations"] as const) : []),
+  ];
+
+  useEffect(() => {
+    if (!visibleViews.includes(activeView)) {
+      setViewHistory([visibleViews[0] ?? "catalog"]);
+    }
+  }, [activeView, visibleViews]);
 
   const selectedProduct = data.products.find((item) => item.id === selectedProductId) ?? null;
   const productMap = useMemo(() => new Map(data.products.map((product) => [product.id, product])), [data.products]);
@@ -201,6 +220,28 @@ export function InventoryScreen({
     onDirtyChange?.(isCatalogFormDirty || isAdjustmentDirty || isTransferDirty);
     return () => onDirtyChange?.(false);
   }, [isAdjustmentDirty, isCatalogFormDirty, isTransferDirty, onDirtyChange]);
+
+  const canHandleBack =
+    selectedProductId != null ||
+    scanResult != null ||
+    viewHistory.length > 1 ||
+    isCatalogFormDirty ||
+    isAdjustmentDirty ||
+    isTransferDirty;
+  useEffect(() => {
+    if (!onRegisterBackHandler) {
+      return;
+    }
+    if (!canHandleBack) {
+      onRegisterBackHandler(null);
+      return;
+    }
+    onRegisterBackHandler(() => {
+      goBack();
+      return true;
+    });
+    return () => onRegisterBackHandler(null);
+  }, [canHandleBack, isAdjustmentDirty, isCatalogFormDirty, isTransferDirty, onRegisterBackHandler, scanResult, selectedProductId, viewHistory.length]);
 
   function goBack() {
     if (activeView === "catalog" && selectedProductId) {
@@ -348,10 +389,10 @@ export function InventoryScreen({
         <Text style={styles.subheading}>Catalog, scan, tracking, balances, reservations, stock movements, and manual inventory operations are now part of the mobile app.</Text>
       </View>
 
-      {selectedProductId || scanResult || viewHistory.length > 1 ? <BackButton label={selectedProductId || scanResult ? "Back" : "Back"} onPress={goBack} /> : null}
+      {canHandleBack ? <BackButton label="Back" onPress={goBack} /> : null}
 
       <View style={styles.segmentRow}>
-        {(["catalog", "tracking", "balances", "operations", "movements"] as const).map((view) => {
+        {visibleViews.map((view) => {
           const active = activeView === view;
           return (
             <Pressable key={view} onPress={() => navigateViewWithGuard(view)} style={[styles.segment, active && styles.segmentActive]}>
@@ -387,70 +428,74 @@ export function InventoryScreen({
             ))}
           </View>
           {selectedProduct ? <ProductDetailCard product={selectedProduct} /> : null}
-          <SectionHeader title="Create store product" action={`Org ${session?.organizationId ?? "-"}`} />
-          <GlassCard style={styles.formCard}>
-            <SearchableSelect
-              label="Find shared catalog product"
-              placeholder="Search catalog products"
-              selectedLabel={data.productCatalog.find((product) => String(product.id) === form.productId)?.name}
-              options={catalogOptions}
-              onSelect={(id) => {
-                const product = data.productCatalog.find((entry) => String(entry.id) === id);
-                setForm((current) => ({
-                  ...current,
-                  productId: id,
-                  name: product?.name || current.name,
-                  description: product?.description || current.description,
-                  inventoryTrackingMode: product?.inventoryTrackingMode || current.inventoryTrackingMode,
-                  baseUomId: product?.baseUomId ? String(product.baseUomId) : current.baseUomId,
-                }));
-              }}
-            />
-            <View style={styles.quickPickWrap}>
-              {data.productCatalog.slice(0, 6).map((product) => (
-                <Pressable
-                  key={product.id}
-                  onPress={() => setForm((current) => ({
-                    ...current,
-                    productId: String(product.id),
-                    name: product.name,
-                    description: product.description || "",
-                    inventoryTrackingMode: product.inventoryTrackingMode || "NONE",
-                    baseUomId: product.baseUomId ? String(product.baseUomId) : current.baseUomId,
-                  }))}
-                  style={styles.quickPick}
-                >
-                  <Text style={styles.quickPickText} numberOfLines={1}>{product.name}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.choiceRow}>
-              {["NONE", "SERIAL", "BATCH"].map((mode) => {
-                const active = form.inventoryTrackingMode === mode;
-                return (
-                  <Pressable key={mode} onPress={() => setForm((current) => ({ ...current, inventoryTrackingMode: mode }))} style={[styles.choiceChip, active && styles.choiceChipActive]}>
-                    <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{mode}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {[
-              ["Linked product id", "productId", "numeric"],
-              ["Category id", "categoryId", "numeric"],
-              ["Brand id", "brandId", "numeric"],
-              ["Base UOM id", "baseUomId", "numeric"],
-              ["Tax group id", "taxGroupId", "numeric"],
-              ["SKU", "sku", "default"],
-              ["Product name", "name", "default"],
-              ["Description", "description", "default"],
-              ["Min stock qty", "minStockBaseQty", "numeric"],
-              ["Reorder level qty", "reorderLevelBaseQty", "numeric"],
-              ["Default sale price", "defaultSalePrice", "numeric"],
-            ].map(([label, key, keyboardType]) => (
-              <TextInput key={key} value={form[key as keyof typeof form]} onChangeText={(value) => setForm((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType={keyboardType === "numeric" ? "numeric" : "default"} />
-            ))}
-            <ActionButton label={saving ? "Saving..." : "Create product"} icon="cube" onPress={saving ? undefined : handleSave} />
-          </GlassCard>
+          {canManageMasters ? (
+            <>
+              <SectionHeader title="Create store product" action={`Org ${session?.organizationId ?? "-"}`} />
+              <GlassCard style={styles.formCard}>
+                <SearchableSelect
+                  label="Find shared catalog product"
+                  placeholder="Search catalog products"
+                  selectedLabel={data.productCatalog.find((product) => String(product.id) === form.productId)?.name}
+                  options={catalogOptions}
+                  onSelect={(id) => {
+                    const product = data.productCatalog.find((entry) => String(entry.id) === id);
+                    setForm((current) => ({
+                      ...current,
+                      productId: id,
+                      name: product?.name || current.name,
+                      description: product?.description || current.description,
+                      inventoryTrackingMode: product?.inventoryTrackingMode || current.inventoryTrackingMode,
+                      baseUomId: product?.baseUomId ? String(product.baseUomId) : current.baseUomId,
+                    }));
+                  }}
+                />
+                <View style={styles.quickPickWrap}>
+                  {data.productCatalog.slice(0, 6).map((product) => (
+                    <Pressable
+                      key={product.id}
+                      onPress={() => setForm((current) => ({
+                        ...current,
+                        productId: String(product.id),
+                        name: product.name,
+                        description: product.description || "",
+                        inventoryTrackingMode: product.inventoryTrackingMode || "NONE",
+                        baseUomId: product.baseUomId ? String(product.baseUomId) : current.baseUomId,
+                      }))}
+                      style={styles.quickPick}
+                    >
+                      <Text style={styles.quickPickText} numberOfLines={1}>{product.name}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <View style={styles.choiceRow}>
+                  {["NONE", "SERIAL", "BATCH"].map((mode) => {
+                    const active = form.inventoryTrackingMode === mode;
+                    return (
+                      <Pressable key={mode} onPress={() => setForm((current) => ({ ...current, inventoryTrackingMode: mode }))} style={[styles.choiceChip, active && styles.choiceChipActive]}>
+                        <Text style={[styles.choiceText, active && styles.choiceTextActive]}>{mode}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {[
+                  ["Linked product id", "productId", "numeric"],
+                  ["Category id", "categoryId", "numeric"],
+                  ["Brand id", "brandId", "numeric"],
+                  ["Base UOM id", "baseUomId", "numeric"],
+                  ["Tax group id", "taxGroupId", "numeric"],
+                  ["SKU", "sku", "default"],
+                  ["Product name", "name", "default"],
+                  ["Description", "description", "default"],
+                  ["Min stock qty", "minStockBaseQty", "numeric"],
+                  ["Reorder level qty", "reorderLevelBaseQty", "numeric"],
+                  ["Default sale price", "defaultSalePrice", "numeric"],
+                ].map(([label, key, keyboardType]) => (
+                  <TextInput key={key} value={form[key as keyof typeof form]} onChangeText={(value) => setForm((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} keyboardType={keyboardType === "numeric" ? "numeric" : "default"} />
+                ))}
+                <ActionButton label={saving ? "Saving..." : "Create product"} icon="cube" onPress={saving ? undefined : handleSave} />
+              </GlassCard>
+            </>
+          ) : null}
         </>
       ) : null}
 
@@ -535,8 +580,10 @@ export function InventoryScreen({
 
       {activeView === "operations" ? (
         <>
-          <SectionHeader title="Manual adjustment" action="Inventory ops" />
-          <GlassCard style={styles.formCard}>
+          {canAdjustInventory ? (
+            <>
+              <SectionHeader title="Manual adjustment" action="Inventory ops" />
+              <GlassCard style={styles.formCard}>
             <SearchableSelect
               label="Find product for adjustment"
               placeholder="Search store products"
@@ -576,10 +623,14 @@ export function InventoryScreen({
             ].map(([label, key]) => (
               <TextInput key={key} value={adjustment[key as keyof typeof adjustment]} onChangeText={(value) => setAdjustment((current) => ({ ...current, [key]: value }))} placeholder={label} placeholderTextColor={theme.colors.textMuted} style={styles.input} />
             ))}
-            <ActionButton label="Post adjustment" icon="build" onPress={handleAdjustment} />
-          </GlassCard>
-          <SectionHeader title="Stock transfer" action="Between warehouses" />
-          <GlassCard style={styles.formCard}>
+                <ActionButton label="Post adjustment" icon="build" onPress={handleAdjustment} />
+              </GlassCard>
+            </>
+          ) : null}
+          {canTransferInventory ? (
+            <>
+              <SectionHeader title="Stock transfer" action="Between warehouses" />
+              <GlassCard style={styles.formCard}>
             <SearchableSelect
               label="Find product for transfer"
               placeholder="Search store products"
@@ -636,9 +687,11 @@ export function InventoryScreen({
             <Text style={styles.helperText}>
               From {warehouseMap.get(Number(transfer.fromWarehouseId))?.name || "not selected"} to {warehouseMap.get(Number(transfer.toWarehouseId))?.name || "not selected"}
             </Text>
-            <ActionButton label="Create transfer" icon="swap-horizontal" onPress={handleTransfer} />
-            {operationMsg ? <Text style={styles.helperText}>{operationMsg}</Text> : null}
-          </GlassCard>
+                <ActionButton label="Create transfer" icon="swap-horizontal" onPress={handleTransfer} />
+                {operationMsg ? <Text style={styles.helperText}>{operationMsg}</Text> : null}
+              </GlassCard>
+            </>
+          ) : null}
         </>
       ) : null}
 

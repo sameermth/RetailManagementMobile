@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { ActionButton, GlassCard, GradientCard, SectionHeader } from "../../components/Ui";
 import { useAppData } from "../../store/AppDataContext";
 import { theme } from "../../theme/theme";
+import { hasAnyPermission, hasPermission } from "../../utils/access";
 import { formatCompactCurrency, formatCurrency } from "../../utils/formatters";
 
 type ReportView = "business" | "gst" | "finance" | "approvals" | "workflow";
@@ -90,6 +91,24 @@ export function ReportsScreen({
   const [workflowDate, setWorkflowDate] = useState(new Date().toISOString().slice(0, 10));
   const [approvalEval, setApprovalEval] = useState({ entityType: "SALES_INVOICE", entityId: "" });
   const [approvalEvalResult, setApprovalEvalResult] = useState<string>("");
+  const canBusiness = hasAnyPermission(session, ["dashboard.view", "reports.view"]);
+  const canGst = hasPermission(session, "reports.view");
+  const canFinance = hasPermission(session, "reports.view");
+  const canApprovals = hasPermission(session, "approvals.manage");
+  const canWorkflow = hasPermission(session, "reports.view");
+  const visibleViews: ReportView[] = [
+    ...(canBusiness ? (["business"] as const) : []),
+    ...(canGst ? (["gst"] as const) : []),
+    ...(canFinance ? (["finance"] as const) : []),
+    ...(canApprovals ? (["approvals"] as const) : []),
+    ...(canWorkflow ? (["workflow"] as const) : []),
+  ];
+
+  useEffect(() => {
+    if (!visibleViews.includes(activeView)) {
+      setActiveView(visibleViews[0] ?? "business");
+    }
+  }, [activeView, visibleViews]);
 
   useEffect(() => {
     if (!session?.organizationId) return;
@@ -200,7 +219,7 @@ export function ReportsScreen({
       </View>
 
       <View style={styles.segmentRow}>
-        {(["business", "gst", "finance", "approvals", "workflow"] as ReportView[]).map((view) => {
+        {visibleViews.map((view) => {
           const active = view === activeView;
           return (
             <Pressable key={view} onPress={() => setActiveView(view)} style={[styles.segment, active && styles.segmentActive]}>
